@@ -1,0 +1,7 @@
+node_modules
+.env
+requirments.txt
+QUICK_START_GUIDE.md
+REQUIREMENTS_COMPLIANCE_REPORT.md
+seeder.js
+data/
