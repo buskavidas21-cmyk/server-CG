@@ -272,4 +272,482 @@ const generateSummaryReport = (data, outputPath) => {
     });
 };
 
-module.exports = { generateInspectionPDF, generateSummaryReport };
+// Generate Overall Report PDF
+const generateOverallReportPDF = (data, outputPath) => {
+    return new Promise((resolve, reject) => {
+        try {
+            const doc = new PDFDocument({ margin: 50, bufferPages: true });
+            const stream = fs.createWriteStream(outputPath);
+
+            doc.pipe(stream);
+
+            const period = `${new Date(data.period.start).toLocaleDateString()} - ${new Date(data.period.end).toLocaleDateString()}`;
+            drawHeader(doc, 'Overall Report', period);
+
+            // Summary Stats
+            doc.fontSize(14).font('Helvetica-Bold').fillColor(COLORS.text).text('Performance Overview', 50);
+            doc.moveDown(1);
+
+            const statsY = doc.y;
+            const boxWidth = 150;
+            const boxHeight = 60;
+
+            const drawStatCard = (x, label, value, color) => {
+                doc.roundedRect(x, statsY, boxWidth, boxHeight, 8).fillAndStroke(COLORS.white, COLORS.border);
+                doc.path(`M${x + 5},${statsY + 10} L${x + 5},${statsY + boxHeight - 10}`).lineWidth(3).strokeColor(color).stroke();
+                doc.fillColor(COLORS.secondary).fontSize(9).font('Helvetica').text(label, x + 20, statsY + 10);
+                doc.fillColor(COLORS.text).fontSize(20).font('Helvetica-Bold').text(String(value), x + 20, statsY + 30);
+            };
+
+            drawStatCard(50, 'Total Inspections', data.overall.totalInspections, COLORS.primary);
+            drawStatCard(220, 'Avg Score', `${data.overall.avgScore}%`, COLORS.success);
+            drawStatCard(390, 'Total Tickets', data.overall.totalTickets, COLORS.danger);
+            drawStatCard(50, 'Open Tickets', data.overall.openTickets, COLORS.warning);
+            drawStatCard(220, 'Resolved', data.overall.resolvedTickets, COLORS.success);
+            drawStatCard(390, 'APPA Score', data.overall.avgAppaScore, COLORS.primary);
+
+            doc.moveDown(8);
+
+            // Location Performance Table
+            if (data.locationPerformance && data.locationPerformance.length > 0) {
+                doc.fontSize(14).font('Helvetica-Bold').fillColor(COLORS.text).text('Lowest-Performing Locations', 50);
+                doc.moveDown(1);
+
+                const startX = 50;
+                let currentY = doc.y;
+                const rowHeight = 25;
+
+                // Header
+                doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.primary);
+                doc.fillColor(COLORS.white).fontSize(10).font('Helvetica-Bold');
+                doc.text('Location', startX + 10, currentY + 8);
+                doc.text('Inspections', startX + 200, currentY + 8);
+                doc.text('Avg Score', startX + 300, currentY + 8);
+                doc.text('Tickets', startX + 400, currentY + 8);
+
+                currentY += rowHeight;
+
+                // Data Rows
+                doc.font('Helvetica').fontSize(10);
+                data.locationPerformance.slice(0, 20).forEach((loc, i) => {
+                    if (currentY > 700) {
+                        doc.addPage();
+                        currentY = 50;
+                    }
+
+                    if (i % 2 === 0) {
+                        doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.accent);
+                    }
+
+                    doc.fillColor(COLORS.text);
+                    doc.text(loc.locationName || 'Unknown', startX + 10, currentY + 8, { width: 180, ellipsis: true });
+                    doc.text(String(loc.inspectionCount), startX + 200, currentY + 8);
+                    
+                    const scoreColor = loc.averageScore >= 90 ? COLORS.success : loc.averageScore >= 75 ? COLORS.warning : COLORS.danger;
+                    doc.fillColor(scoreColor);
+                    doc.text(`${loc.averageScore}%`, startX + 300, currentY + 8);
+                    
+                    doc.fillColor(COLORS.text);
+                    doc.text(String(loc.ticketCount), startX + 400, currentY + 8);
+
+                    currentY += rowHeight;
+                });
+            }
+
+            drawFooter(doc);
+            doc.end();
+
+            stream.on('finish', () => resolve(outputPath));
+            stream.on('error', reject);
+        } catch (error) {
+            reject(error);
+        }
+    });
+};
+
+// Generate Tickets Report PDF
+const generateTicketsReportPDF = (data, outputPath) => {
+    return new Promise((resolve, reject) => {
+        try {
+            const doc = new PDFDocument({ margin: 50, bufferPages: true });
+            const stream = fs.createWriteStream(outputPath);
+
+            doc.pipe(stream);
+
+            const period = `${new Date(data.period.start).toLocaleDateString()} - ${new Date(data.period.end).toLocaleDateString()}`;
+            drawHeader(doc, 'Tickets Report', period);
+
+            // Responsiveness Metrics
+            doc.fontSize(14).font('Helvetica-Bold').fillColor(COLORS.text).text('Team Responsiveness', 50);
+            doc.moveDown(1);
+
+            const statsY = doc.y;
+            const boxWidth = 150;
+            const boxHeight = 60;
+
+            const drawStatCard = (x, label, value, color) => {
+                doc.roundedRect(x, statsY, boxWidth, boxHeight, 8).fillAndStroke(COLORS.white, COLORS.border);
+                doc.path(`M${x + 5},${statsY + 10} L${x + 5},${statsY + boxHeight - 10}`).lineWidth(3).strokeColor(color).stroke();
+                doc.fillColor(COLORS.secondary).fontSize(9).font('Helvetica').text(label, x + 20, statsY + 10);
+                doc.fillColor(COLORS.text).fontSize(20).font('Helvetica-Bold').text(String(value), x + 20, statsY + 30);
+            };
+
+            drawStatCard(50, 'Total Tickets', data.responsiveness.totalTickets, COLORS.primary);
+            drawStatCard(220, 'Avg Response', `${data.responsiveness.avgResponseTime}h`, COLORS.warning);
+            drawStatCard(390, 'Avg Resolution', `${data.responsiveness.avgResolutionTime}h`, COLORS.success);
+            drawStatCard(50, 'Response Rate', `${data.responsiveness.responseRate}%`, COLORS.primary);
+
+            doc.moveDown(8);
+
+            // Location Complaints Table
+            if (data.locationComplaints && data.locationComplaints.length > 0) {
+                doc.fontSize(14).font('Helvetica-Bold').fillColor(COLORS.text).text('Locations with Most Complaints', 50);
+                doc.moveDown(1);
+
+                const startX = 50;
+                let currentY = doc.y;
+                const rowHeight = 25;
+
+                // Header
+                doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.primary);
+                doc.fillColor(COLORS.white).fontSize(10).font('Helvetica-Bold');
+                doc.text('Location', startX + 10, currentY + 8);
+                doc.text('Total', startX + 200, currentY + 8);
+                doc.text('Open', startX + 280, currentY + 8);
+                doc.text('Resolved', startX + 340, currentY + 8);
+                doc.text('Avg Response', startX + 420, currentY + 8);
+
+                currentY += rowHeight;
+
+                // Data Rows
+                doc.font('Helvetica').fontSize(10);
+                data.locationComplaints.slice(0, 20).forEach((loc, i) => {
+                    if (currentY > 700) {
+                        doc.addPage();
+                        currentY = 50;
+                    }
+
+                    if (i % 2 === 0) {
+                        doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.accent);
+                    }
+
+                    doc.fillColor(COLORS.text);
+                    doc.text(loc.locationName || 'Unknown', startX + 10, currentY + 8, { width: 180, ellipsis: true });
+                    doc.text(String(loc.totalTickets), startX + 200, currentY + 8);
+                    doc.fillColor(COLORS.danger);
+                    doc.text(String(loc.openTickets), startX + 280, currentY + 8);
+                    doc.fillColor(COLORS.success);
+                    doc.text(String(loc.resolvedTickets), startX + 340, currentY + 8);
+                    doc.fillColor(COLORS.text);
+                    doc.text(loc.avgResponseTime > 0 ? `${loc.avgResponseTime}h` : 'N/A', startX + 420, currentY + 8);
+
+                    currentY += rowHeight;
+                });
+            }
+
+            drawFooter(doc);
+            doc.end();
+
+            stream.on('finish', () => resolve(outputPath));
+            stream.on('error', reject);
+        } catch (error) {
+            reject(error);
+        }
+    });
+};
+
+// Generate Inspector Leaderboard PDF
+const generateInspectorLeaderboardPDF = (data, outputPath) => {
+    return new Promise((resolve, reject) => {
+        try {
+            const doc = new PDFDocument({ margin: 50, bufferPages: true });
+            const stream = fs.createWriteStream(outputPath);
+
+            doc.pipe(stream);
+
+            const period = `${new Date(data.period.start).toLocaleDateString()} - ${new Date(data.period.end).toLocaleDateString()}`;
+            drawHeader(doc, 'Inspector Leaderboard', period);
+
+            // Summary
+            doc.fontSize(14).font('Helvetica-Bold').fillColor(COLORS.text).text('Summary', 50);
+            doc.moveDown(1);
+
+            doc.fontSize(10).font('Helvetica');
+            doc.text(`Total Inspectors: ${data.summary.totalInspectors}`, 50);
+            doc.text(`Total Inspections: ${data.summary.totalInspections}`, 200);
+            doc.text(`Overall Avg Score: ${data.summary.overallAvgScore}%`, 350);
+
+            doc.moveDown(4);
+
+            // Leaderboard Table
+            if (data.leaderboard && data.leaderboard.length > 0) {
+                doc.fontSize(14).font('Helvetica-Bold').fillColor(COLORS.text).text('Inspector Rankings', 50);
+                doc.moveDown(1);
+
+                const startX = 50;
+                let currentY = doc.y;
+                const rowHeight = 30;
+
+                // Header
+                doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.primary);
+                doc.fillColor(COLORS.white).fontSize(10).font('Helvetica-Bold');
+                doc.text('Rank', startX + 10, currentY + 10);
+                doc.text('Inspector', startX + 60, currentY + 10);
+                doc.text('Inspections', startX + 250, currentY + 10);
+                doc.text('Avg Score', startX + 350, currentY + 10);
+                doc.text('APPA', startX + 430, currentY + 10);
+
+                currentY += rowHeight;
+
+                // Data Rows
+                doc.font('Helvetica').fontSize(10);
+                data.leaderboard.forEach((inspector, i) => {
+                    if (currentY > 700) {
+                        doc.addPage();
+                        currentY = 50;
+                    }
+
+                    if (i % 2 === 0) {
+                        doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.accent);
+                    }
+
+                    doc.fillColor(COLORS.text);
+                    doc.text(`#${i + 1}`, startX + 10, currentY + 10);
+                    doc.text(inspector.inspectorName || 'Unknown', startX + 60, currentY + 10, { width: 180, ellipsis: true });
+                    doc.text(String(inspector.inspectionCount), startX + 250, currentY + 10);
+                    
+                    const scoreColor = inspector.averageScore >= 90 ? COLORS.success : inspector.averageScore >= 75 ? COLORS.warning : COLORS.danger;
+                    doc.fillColor(scoreColor);
+                    doc.text(`${inspector.averageScore}%`, startX + 350, currentY + 10);
+                    
+                    doc.fillColor(COLORS.text);
+                    doc.text(String(inspector.avgAppaScore), startX + 430, currentY + 10);
+
+                    currentY += rowHeight;
+                });
+            }
+
+            drawFooter(doc);
+            doc.end();
+
+            stream.on('finish', () => resolve(outputPath));
+            stream.on('error', reject);
+        } catch (error) {
+            reject(error);
+        }
+    });
+};
+
+// Generate Private Inspections Report PDF
+const generatePrivateInspectionsReportPDF = (data, outputPath) => {
+    return new Promise((resolve, reject) => {
+        try {
+            const doc = new PDFDocument({ margin: 50, bufferPages: true });
+            const stream = fs.createWriteStream(outputPath);
+
+            doc.pipe(stream);
+
+            const period = `${new Date(data.period.start).toLocaleDateString()} - ${new Date(data.period.end).toLocaleDateString()}`;
+            drawHeader(doc, 'Private Inspections Report', period);
+
+            // Summary
+            doc.fontSize(14).font('Helvetica-Bold').fillColor(COLORS.text).text('Summary', 50);
+            doc.moveDown(1);
+
+            doc.fontSize(10).font('Helvetica');
+            doc.text(`Total Private Inspections: ${data.summary.totalPrivateInspections}`, 50);
+            doc.text(`Average Score: ${data.summary.avgScore}%`, 250);
+            doc.text(`Avg APPA Score: ${data.summary.avgAppaScore}`, 400);
+
+            doc.moveDown(4);
+
+            // Inspector Performance Table
+            if (data.inspectorPerformance && data.inspectorPerformance.length > 0) {
+                doc.fontSize(14).font('Helvetica-Bold').fillColor(COLORS.text).text('Inspector Performance (Internal)', 50);
+                doc.moveDown(1);
+
+                const startX = 50;
+                let currentY = doc.y;
+                const rowHeight = 30;
+
+                // Header
+                doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.primary);
+                doc.fillColor(COLORS.white).fontSize(10).font('Helvetica-Bold');
+                doc.text('Inspector', startX + 10, currentY + 10);
+                doc.text('Inspections', startX + 250, currentY + 10);
+                doc.text('Avg Score', startX + 350, currentY + 10);
+                doc.text('APPA', startX + 430, currentY + 10);
+
+                currentY += rowHeight;
+
+                // Data Rows
+                doc.font('Helvetica').fontSize(10);
+                data.inspectorPerformance.forEach((perf, i) => {
+                    if (currentY > 700) {
+                        doc.addPage();
+                        currentY = 50;
+                    }
+
+                    if (i % 2 === 0) {
+                        doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.accent);
+                    }
+
+                    doc.fillColor(COLORS.text);
+                    doc.text(perf.inspectorName || 'Unknown', startX + 10, currentY + 10, { width: 230, ellipsis: true });
+                    doc.text(String(perf.inspectionCount), startX + 250, currentY + 10);
+                    
+                    const scoreColor = perf.averageScore >= 90 ? COLORS.success : perf.averageScore >= 75 ? COLORS.warning : COLORS.danger;
+                    doc.fillColor(scoreColor);
+                    doc.text(`${perf.averageScore}%`, startX + 350, currentY + 10);
+                    
+                    doc.fillColor(COLORS.text);
+                    doc.text(String(perf.avgAppaScore), startX + 430, currentY + 10);
+
+                    currentY += rowHeight;
+                });
+            }
+
+            drawFooter(doc);
+            doc.end();
+
+            stream.on('finish', () => resolve(outputPath));
+            stream.on('error', reject);
+        } catch (error) {
+            reject(error);
+        }
+    });
+};
+
+// Generate Inspection Forms Report PDF
+const generateInspectionFormsReportPDF = (data, outputPath) => {
+    return new Promise((resolve, reject) => {
+        try {
+            const doc = new PDFDocument({ margin: 50, bufferPages: true });
+            const stream = fs.createWriteStream(outputPath);
+
+            doc.pipe(stream);
+
+            const period = `${new Date(data.period.start).toLocaleDateString()} - ${new Date(data.period.end).toLocaleDateString()}`;
+            drawHeader(doc, 'Inspection Forms Report', period);
+
+            // Area Type Performance
+            if (data.areaTypePerformance && data.areaTypePerformance.length > 0) {
+                doc.fontSize(14).font('Helvetica-Bold').fillColor(COLORS.text).text('Area Type Performance', 50);
+                doc.moveDown(1);
+
+                const startX = 50;
+                let currentY = doc.y;
+                const rowHeight = 30;
+
+                // Header
+                doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.primary);
+                doc.fillColor(COLORS.white).fontSize(10).font('Helvetica-Bold');
+                doc.text('Area Type', startX + 10, currentY + 10);
+                doc.text('Inspections', startX + 250, currentY + 10);
+                doc.text('Avg Score', startX + 350, currentY + 10);
+
+                currentY += rowHeight;
+
+                // Data Rows
+                doc.font('Helvetica').fontSize(10);
+                data.areaTypePerformance.forEach((area, i) => {
+                    if (currentY > 700) {
+                        doc.addPage();
+                        currentY = 50;
+                    }
+
+                    if (i % 2 === 0) {
+                        doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.accent);
+                    }
+
+                    doc.fillColor(COLORS.text);
+                    const areaName = area.areaType.charAt(0).toUpperCase() + area.areaType.slice(1);
+                    doc.text(areaName, startX + 10, currentY + 10, { width: 230, ellipsis: true });
+                    doc.text(String(area.inspectionCount), startX + 250, currentY + 10);
+                    
+                    const scoreColor = area.averageScore >= 90 ? COLORS.success : area.averageScore >= 75 ? COLORS.warning : COLORS.danger;
+                    doc.fillColor(scoreColor);
+                    doc.text(`${area.averageScore}%`, startX + 350, currentY + 10);
+
+                    currentY += rowHeight;
+
+                    // Lowest performing items (first 3)
+                    if (area.lowestPerformingItems && area.lowestPerformingItems.length > 0) {
+                        doc.fillColor(COLORS.secondary).fontSize(9);
+                        area.lowestPerformingItems.slice(0, 3).forEach((item, itemIdx) => {
+                            if (currentY > 700) {
+                                doc.addPage();
+                                currentY = 50;
+                            }
+                            doc.text(`  • ${item.itemName}: ${item.failRate}% fail rate`, startX + 20, currentY + 5, { width: 450, ellipsis: true });
+                            currentY += 20;
+                        });
+                        currentY += 5;
+                    }
+                });
+            }
+
+            doc.moveDown(2);
+
+            // Template Performance
+            if (data.templatePerformance && data.templatePerformance.length > 0) {
+                doc.fontSize(14).font('Helvetica-Bold').fillColor(COLORS.text).text('Template Performance', 50);
+                doc.moveDown(1);
+
+                const startX = 50;
+                let currentY = doc.y;
+                const rowHeight = 30;
+
+                // Header
+                doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.primary);
+                doc.fillColor(COLORS.white).fontSize(10).font('Helvetica-Bold');
+                doc.text('Template', startX + 10, currentY + 10);
+                doc.text('Inspections', startX + 300, currentY + 10);
+                doc.text('Avg Score', startX + 400, currentY + 10);
+
+                currentY += rowHeight;
+
+                // Data Rows
+                doc.font('Helvetica').fontSize(10);
+                data.templatePerformance.forEach((template, i) => {
+                    if (currentY > 700) {
+                        doc.addPage();
+                        currentY = 50;
+                    }
+
+                    if (i % 2 === 0) {
+                        doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.accent);
+                    }
+
+                    doc.fillColor(COLORS.text);
+                    doc.text(template.templateName || 'Unknown', startX + 10, currentY + 10, { width: 280, ellipsis: true });
+                    doc.text(String(template.inspectionCount), startX + 300, currentY + 10);
+                    
+                    const scoreColor = template.averageScore >= 90 ? COLORS.success : template.averageScore >= 75 ? COLORS.warning : COLORS.danger;
+                    doc.fillColor(scoreColor);
+                    doc.text(`${template.averageScore}%`, startX + 400, currentY + 10);
+
+                    currentY += rowHeight;
+                });
+            }
+
+            drawFooter(doc);
+            doc.end();
+
+            stream.on('finish', () => resolve(outputPath));
+            stream.on('error', reject);
+        } catch (error) {
+            reject(error);
+        }
+    });
+};
+
+module.exports = { 
+    generateInspectionPDF, 
+    generateSummaryReport,
+    generateOverallReportPDF,
+    generateTicketsReportPDF,
+    generateInspectorLeaderboardPDF,
+    generatePrivateInspectionsReportPDF,
+    generateInspectionFormsReportPDF
+};

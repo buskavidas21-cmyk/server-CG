@@ -44,6 +44,9 @@ const inspectionSchema = mongoose.Schema(
         },
         summaryComment: { type: String },
         scheduledDate: { type: Date },
+        isDeficient: { type: Boolean, default: false }, // Score below threshold
+        isFlagged: { type: Boolean, default: false }, // Has issues or tickets
+        isPrivate: { type: Boolean, default: false }, // Private/internal inspection
     },
     {
         timestamps: true,

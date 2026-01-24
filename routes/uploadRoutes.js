@@ -6,6 +6,14 @@ const fs = require('fs');
 
 const router = express.Router();
 
+// Get base URL from environment or use default
+const getBaseUrl = () => {
+    const protocol = process.env.PROTOCOL || 'http';
+    const host = process.env.HOST || 'localhost';
+    const port = process.env.PORT || 5000;
+    return `${protocol}://${host}:${port}`;
+};
+
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, '../uploads');
 if (!fs.existsSync(uploadsDir)) {
@@ -25,7 +33,7 @@ router.post('/', protect, upload.single('photo'), (req, res) => {
             message: 'Photo uploaded successfully',
             filename: req.file.filename,
             path: `/uploads/${req.file.filename}`,
-            url: `http://localhost:5000/uploads/${req.file.filename}`
+            url: `${getBaseUrl()}/uploads/${req.file.filename}`
         });
     } catch (error) {
         console.error('Upload error:', error);
@@ -45,7 +53,7 @@ router.post('/multiple', protect, upload.array('photos', 10), (req, res) => {
         const files = req.files.map(file => ({
             filename: file.filename,
             path: `/uploads/${file.filename}`,
-            url: `http://localhost:5000/uploads/${file.filename}`
+            url: `${getBaseUrl()}/uploads/${file.filename}`
         }));
 
         res.json({

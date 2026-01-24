@@ -13,6 +13,8 @@ const inspectionRoutes = require('./routes/inspectionRoutes');
 const ticketRoutes = require('./routes/ticketRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
 const reportRoutes = require('./routes/reportRoutes');
+const dashboardRoutes = require('./routes/dashboardRoutes');
+const v4Routes = require('./routes/v4Routes');
 
 dotenv.config();
 
@@ -26,9 +28,17 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+// Rate limiting - more lenient in development
 const limiter = rateLimit({
-    windowMs: 10 * 60 * 1000, // 10 minutes
-    max: 100, // Limit each IP to 100 requests per windowMs
+    windowMs: 1 * 60 * 1000, // 1 minute
+    max: process.env.NODE_ENV === 'production' ? 100 : 1000, // 1000 requests per minute in dev, 100 in production
+    message: 'Too many requests from this IP, please try again later.',
+    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+    skip: (req) => {
+        // Skip rate limiting for health checks
+        return req.path === '/' || req.path === '/health';
+    }
 });
 app.use('/api', limiter);
 
@@ -46,6 +56,8 @@ app.use('/api/inspections', inspectionRoutes);
 app.use('/api/tickets', ticketRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/v4', v4Routes);
 
 app.use(notFound);
 app.use(errorHandler);
