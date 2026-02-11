@@ -8,7 +8,11 @@ const getInspections = async (req, res) => {
 
     // Admin and sub_admin see all inspections
     if (req.user.role === 'admin' || req.user.role === 'sub_admin') {
-        query = {};
+        if (req.query.inspector) {
+            query = { inspector: req.query.inspector };
+        } else {
+            query = {};
+        }
     }
     // Supervisors see only their assigned inspections
     else if (req.user.role === 'supervisor') {
@@ -169,6 +173,7 @@ const assignInspection = async (req, res) => {
     const inspection = await Inspection.findById(req.params.id);
     if (inspection) {
         inspection.inspector = req.body.inspector;
+        inspection.status = 'pending'; // Reset to pending on new assignment
         const updatedInspection = await inspection.save();
         res.json(updatedInspection);
     } else {
@@ -184,6 +189,9 @@ const scheduleInspection = async (req, res) => {
     const inspection = await Inspection.findById(req.params.id);
     if (inspection) {
         inspection.scheduledDate = req.body.scheduledDate;
+        if (inspection.status !== 'completed' && inspection.status !== 'submitted') {
+            inspection.status = 'pending';
+        }
         const updatedInspection = await inspection.save();
         res.json(updatedInspection);
     } else {

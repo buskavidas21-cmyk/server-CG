@@ -39,7 +39,7 @@ const inspectionSchema = mongoose.Schema(
         appaScore: { type: Number },
         status: {
             type: String,
-            enum: ['in_progress', 'completed', 'submitted'],
+            enum: ['in_progress', 'completed', 'submitted', 'pending'],
             default: 'in_progress',
         },
         summaryComment: { type: String },

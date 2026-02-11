@@ -19,7 +19,7 @@ const ticketSchema = mongoose.Schema(
             enum: ['open', 'in_progress', 'resolved', 'verified'],
             default: 'open',
         },
-        category: { type: String },
+
         location: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'Location',
@@ -41,6 +41,13 @@ const ticketSchema = mongoose.Schema(
         dueDate: { type: Date },
         scheduledDate: { type: Date },
         firstResponseAt: { type: Date },
+        resolutionNotes: { type: String },
+        resolutionImages: [{ type: String }],
+        resolvedAt: { type: Date },
+        resolvedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+        },
     },
     {
         timestamps: true,
