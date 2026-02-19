@@ -25,6 +25,14 @@ const userSchema = mongoose.Schema(
             type: mongoose.Schema.Types.ObjectId,
             ref: 'Location',
         }],
+        notifications: {
+            email: { type: Boolean, default: true },
+            push: { type: Boolean, default: true },
+        },
+        fcmToken: {
+            type: String,
+            default: null,
+        },
     },
     {
         timestamps: true,

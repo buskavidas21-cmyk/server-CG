@@ -1,4 +1,6 @@
 const Inspection = require('../models/inspectionModel');
+const notificationService = require('../utils/notifications/notificationService');
+const { getAdminRecipients, getUserRecipient, getClientRecipientsForLocation, mergeRecipients } = require('../utils/notifications/notificationHelper');
 
 // @desc    Get all inspections
 // @route   GET /api/inspections
@@ -77,6 +79,52 @@ const createInspection = async (req, res) => {
     inspection.appaScore = appaScore;
 
     const createdInspection = await inspection.save();
+
+    // ─── Send Notifications (non-blocking) ──────────────────────
+    const populatedInspection = await Inspection.findById(createdInspection._id)
+        .populate('location', 'name')
+        .populate('template', 'name')
+        .populate('inspector', 'name email');
+
+    (async () => {
+        try {
+            const inspectionData = {
+                _id: populatedInspection._id,
+                locationName: populatedInspection.location?.name || 'N/A',
+                templateName: populatedInspection.template?.name || 'N/A',
+                totalScore: populatedInspection.totalScore,
+                appaScore: populatedInspection.appaScore,
+                status: populatedInspection.status,
+                summaryComment: populatedInspection.summaryComment,
+            };
+            const inspectorName = populatedInspection.inspector?.name || 'Unknown';
+
+            // If completed/submitted → notify admins + clients
+            if (status === 'completed' || status === 'submitted') {
+                const adminRecipients = await getAdminRecipients();
+                const clientRecipients = await getClientRecipientsForLocation(location);
+                const allRecipients = mergeRecipients(adminRecipients, clientRecipients);
+
+                await notificationService.notify('INSPECTION_COMPLETED', {
+                    recipients: allRecipients,
+                    data: { inspection: inspectionData, inspectorName },
+                    meta: { triggeredBy: req.user._id },
+                });
+
+                // If deficient → send additional alert
+                if (totalScore < 75) {
+                    await notificationService.notify('INSPECTION_DEFICIENT', {
+                        recipients: allRecipients,
+                        data: { inspection: inspectionData, inspectorName },
+                        meta: { triggeredBy: req.user._id },
+                    });
+                }
+            }
+        } catch (err) {
+            console.error('Notification error (inspection created):', err.message);
+        }
+    })();
+
     res.status(201).json(createdInspection);
 };
 
@@ -101,10 +149,57 @@ const getInspectionById = async (req, res) => {
 // @route   PUT /api/inspections/:id
 // @access  Private
 const updateInspection = async (req, res) => {
-    const inspection = await Inspection.findById(req.params.id);
+    const inspection = await Inspection.findById(req.params.id)
+        .populate('location', 'name')
+        .populate('template', 'name')
+        .populate('inspector', 'name email');
+
     if (inspection) {
+        const oldStatus = inspection.status;
         Object.assign(inspection, req.body);
         const updatedInspection = await inspection.save();
+
+        // ─── Send Notifications on status change ────────────────
+        const newStatus = req.body.status;
+        if (newStatus && newStatus !== oldStatus) {
+            (async () => {
+                try {
+                    const inspectionData = {
+                        _id: inspection._id,
+                        locationName: inspection.location?.name || 'N/A',
+                        templateName: inspection.template?.name || 'N/A',
+                        totalScore: updatedInspection.totalScore,
+                        appaScore: updatedInspection.appaScore,
+                        summaryComment: updatedInspection.summaryComment,
+                    };
+                    const inspectorName = inspection.inspector?.name || 'Unknown';
+
+                    if (newStatus === 'completed' || newStatus === 'submitted') {
+                        const adminRecipients = await getAdminRecipients();
+                        const clientRecipients = await getClientRecipientsForLocation(inspection.location?._id);
+                        const allRecipients = mergeRecipients(adminRecipients, clientRecipients);
+
+                        await notificationService.notify('INSPECTION_COMPLETED', {
+                            recipients: allRecipients,
+                            data: { inspection: inspectionData, inspectorName },
+                            meta: { triggeredBy: req.user._id },
+                        });
+
+                        // If deficient
+                        if (updatedInspection.totalScore < 75) {
+                            await notificationService.notify('INSPECTION_DEFICIENT', {
+                                recipients: allRecipients,
+                                data: { inspection: inspectionData, inspectorName },
+                                meta: { triggeredBy: req.user._id },
+                            });
+                        }
+                    }
+                } catch (err) {
+                    console.error('Notification error (inspection update):', err.message);
+                }
+            })();
+        }
+
         res.json(updatedInspection);
     } else {
         res.status(404);
@@ -170,11 +265,39 @@ const generatePDF = async (req, res) => {
 // @route   PATCH /api/inspections/:id/assign
 // @access  Private
 const assignInspection = async (req, res) => {
-    const inspection = await Inspection.findById(req.params.id);
+    const inspection = await Inspection.findById(req.params.id)
+        .populate('location', 'name')
+        .populate('template', 'name');
+
     if (inspection) {
         inspection.inspector = req.body.inspector;
         inspection.status = 'pending'; // Reset to pending on new assignment
         const updatedInspection = await inspection.save();
+
+        // ─── Send Notification to assigned supervisor ───────────
+        (async () => {
+            try {
+                const inspectorRecipient = await getUserRecipient(req.body.inspector);
+                if (inspectorRecipient) {
+                    await notificationService.notify('INSPECTION_ASSIGNED', {
+                        recipients: [inspectorRecipient],
+                        data: {
+                            inspection: {
+                                _id: inspection._id,
+                                locationName: inspection.location?.name || 'N/A',
+                                templateName: inspection.template?.name || 'N/A',
+                                scheduledDate: inspection.scheduledDate,
+                            },
+                            assignedByName: req.user.name,
+                        },
+                        meta: { triggeredBy: req.user._id },
+                    });
+                }
+            } catch (err) {
+                console.error('Notification error (inspection assign):', err.message);
+            }
+        })();
+
         res.json(updatedInspection);
     } else {
         res.status(404);
@@ -186,13 +309,40 @@ const assignInspection = async (req, res) => {
 // @route   PATCH /api/inspections/:id/schedule
 // @access  Private
 const scheduleInspection = async (req, res) => {
-    const inspection = await Inspection.findById(req.params.id);
+    const inspection = await Inspection.findById(req.params.id)
+        .populate('location', 'name')
+        .populate('template', 'name');
+
     if (inspection) {
         inspection.scheduledDate = req.body.scheduledDate;
         if (inspection.status !== 'completed' && inspection.status !== 'submitted') {
             inspection.status = 'pending';
         }
         const updatedInspection = await inspection.save();
+
+        // ─── Send Notification to assigned inspector ────────────
+        (async () => {
+            try {
+                const inspectorRecipient = await getUserRecipient(inspection.inspector);
+                if (inspectorRecipient) {
+                    await notificationService.notify('INSPECTION_SCHEDULED', {
+                        recipients: [inspectorRecipient],
+                        data: {
+                            inspection: {
+                                _id: inspection._id,
+                                locationName: inspection.location?.name || 'N/A',
+                                templateName: inspection.template?.name || 'N/A',
+                            },
+                            scheduledDate: req.body.scheduledDate,
+                        },
+                        meta: { triggeredBy: req.user._id },
+                    });
+                }
+            } catch (err) {
+                console.error('Notification error (inspection schedule):', err.message);
+            }
+        })();
+
         res.json(updatedInspection);
     } else {
         res.status(404);

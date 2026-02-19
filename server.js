@@ -20,6 +20,10 @@ dotenv.config();
 
 connectDB();
 
+// Initialize Notification System (Email + Push channels)
+const initializeNotifications = require('./utils/notifications/notificationInit');
+initializeNotifications();
+
 const app = express();
 
 // Security Middleware
