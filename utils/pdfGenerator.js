@@ -2,36 +2,43 @@ const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
 
-// Design Constants
 const COLORS = {
-    primary: '#4f46e5', // Indigo 600
-    secondary: '#64748b', // Slate 500
-    accent: '#f8fafc', // Slate 50
-    text: '#1e293b', // Slate 800
-    border: '#e2e8f0', // Slate 200
+    primary: '#4f46e5',
+    secondary: '#64748b',
+    accent: '#f8fafc',
+    text: '#1e293b',
+    border: '#e2e8f0',
     success: '#10b981',
     warning: '#f59e0b',
     danger: '#ef4444',
     white: '#ffffff'
 };
 
-const drawHeader = (doc, title, subtitle) => {
-    // Top accent bar
-    doc.rect(0, 0, doc.page.width, 10).fill(COLORS.primary);
+const PAGE_BOTTOM = 720;
+const CONTENT_WIDTH = 500;
 
-    // Logo area (placeholder)
+const ensureSpace = (doc, needed) => {
+    if (doc.y > PAGE_BOTTOM - needed) {
+        doc.addPage();
+        doc.y = 50;
+    }
+};
+
+const syncY = (doc, y) => {
+    doc.x = 50;
+    doc.y = y;
+};
+
+const drawHeader = (doc, title, subtitle) => {
+    doc.rect(0, 0, doc.page.width, 10).fill(COLORS.primary);
     doc.fontSize(28).font('Helvetica-Bold').fillColor(COLORS.primary).text('CleanGuard', 50, 45);
     doc.fontSize(10).font('Helvetica').fillColor(COLORS.secondary).text('QUALITY CONTROL', 50, 75, { characterSpacing: 2 });
-
-    // Report Title
     doc.fontSize(24).font('Helvetica-Bold').fillColor(COLORS.text).text(title, 0, 45, { align: 'right', width: doc.page.width - 50 });
     if (subtitle) {
         doc.fontSize(12).font('Helvetica').fillColor(COLORS.secondary).text(subtitle, 0, 75, { align: 'right', width: doc.page.width - 50 });
     }
-
-    // Divider
     doc.moveTo(50, 100).lineTo(doc.page.width - 50, 100).strokeColor(COLORS.border).lineWidth(1).stroke();
-    doc.moveDown(4);
+    syncY(doc, 120);
 };
 
 const drawFooter = (doc) => {
@@ -39,97 +46,157 @@ const drawFooter = (doc) => {
     for (let i = range.start; i < range.start + range.count; i++) {
         doc.switchToPage(i);
 
-        // Bottom line
-        doc.moveTo(50, doc.page.height - 50).lineTo(doc.page.width - 50, doc.page.height - 50).strokeColor(COLORS.border).lineWidth(1).stroke();
+        const savedBottom = doc.page.margins.bottom;
+        doc.page.margins.bottom = 0;
 
+        doc.moveTo(50, doc.page.height - 50).lineTo(doc.page.width - 50, doc.page.height - 50).strokeColor(COLORS.border).lineWidth(1).stroke();
         doc.fontSize(8).font('Helvetica').fillColor(COLORS.secondary);
-        doc.text(`Generated on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, 50, doc.page.height - 40);
-        doc.text(`Page ${i + 1} of ${range.count}`, 0, doc.page.height - 40, { align: 'right', width: doc.page.width - 50 });
+        doc.text(`Generated on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, 50, doc.page.height - 40, { lineBreak: false });
+        doc.text(`Page ${i + 1} of ${range.count}`, 0, doc.page.height - 40, { align: 'right', width: doc.page.width - 50, lineBreak: false });
+
+        doc.page.margins.bottom = savedBottom;
     }
 };
+
+const drawStatCards = (doc, cards, startY) => {
+    const cols = Math.min(cards.length, 3);
+    const gap = 20;
+    const boxWidth = (CONTENT_WIDTH - gap * (cols - 1)) / cols;
+    const boxHeight = 60;
+
+    cards.forEach((card, i) => {
+        const row = Math.floor(i / 3);
+        const col = i % 3;
+        const x = 50 + col * (boxWidth + gap);
+        const y = startY + row * (boxHeight + 15);
+
+        doc.roundedRect(x, y, boxWidth, boxHeight, 8).fillAndStroke(COLORS.white, COLORS.border);
+        doc.save();
+        doc.roundedRect(x + 3, y + 10, 3, boxHeight - 20, 2).fill(card.color);
+        doc.restore();
+        doc.fillColor(COLORS.secondary).fontSize(9).font('Helvetica').text(card.label, x + 18, y + 12, { width: boxWidth - 25, lineBreak: false });
+        doc.fillColor(COLORS.text).fontSize(20).font('Helvetica-Bold').text(String(card.value), x + 18, y + 30, { width: boxWidth - 25, lineBreak: false });
+    });
+
+    const totalRows = Math.ceil(cards.length / 3);
+    return startY + totalRows * (boxHeight + 15) + 15;
+};
+
+const drawTableHeader = (doc, columns, y, startX) => {
+    doc.rect(startX, y, CONTENT_WIDTH, 28).fill(COLORS.primary);
+    doc.fillColor(COLORS.white).fontSize(10).font('Helvetica-Bold');
+    columns.forEach(col => {
+        doc.text(col.header, startX + col.x, y + 9, { width: col.width || 100, lineBreak: false });
+    });
+    return y + 28;
+};
+
+const drawTableRow = (doc, columns, rowData, y, startX, isEven) => {
+    if (isEven) {
+        doc.rect(startX, y, CONTENT_WIDTH, 26).fill(COLORS.accent);
+    }
+    columns.forEach(col => {
+        let text = col.format ? col.format(rowData) : String(rowData[col.key] ?? '');
+        doc.fillColor(col.color ? col.color(rowData) : COLORS.text)
+            .fontSize(10).font('Helvetica')
+            .text(text, startX + col.x, y + 8, { width: col.width || 100, lineBreak: false, ellipsis: true });
+    });
+    return y + 26;
+};
+
+const drawTable = (doc, title, columns, rows, startX = 50) => {
+    if (!rows || rows.length === 0) return;
+
+    ensureSpace(doc, 80);
+    doc.fontSize(14).font('Helvetica-Bold').fillColor(COLORS.text).text(title, 50, doc.y);
+    doc.moveDown(0.8);
+
+    let currentY = doc.y;
+    currentY = drawTableHeader(doc, columns, currentY, startX);
+
+    rows.forEach((row, i) => {
+        if (currentY > PAGE_BOTTOM) {
+            doc.addPage();
+            currentY = 50;
+            currentY = drawTableHeader(doc, columns, currentY, startX);
+        }
+        currentY = drawTableRow(doc, columns, row, currentY, startX, i % 2 === 0);
+    });
+
+    syncY(doc, currentY + 10);
+};
+
+// ─── Individual Report PDF ───
 
 const generateInspectionPDF = (inspection, outputPath) => {
     return new Promise((resolve, reject) => {
         try {
-            const doc = new PDFDocument({ margin: 50, bufferPages: true });
+            const doc = new PDFDocument({ margin: 50, bufferPages: true, autoFirstPage: true });
             const stream = fs.createWriteStream(outputPath);
-
             doc.pipe(stream);
 
             drawHeader(doc, 'Inspection Report', `ID: #${inspection._id.toString().slice(-6).toUpperCase()}`);
 
-            // Score Badge
             const score = inspection.totalScore || 0;
-            let scoreColor = score >= 90 ? COLORS.success : score >= 75 ? COLORS.warning : COLORS.danger;
+            const scoreColor = score >= 90 ? COLORS.success : score >= 75 ? COLORS.warning : COLORS.danger;
 
-            // Info Grid
             const startY = 130;
             doc.rect(50, startY, 300, 100).fill(COLORS.accent);
             doc.fillColor(COLORS.text);
 
             const drawInfoRow = (label, value, y) => {
-                doc.fontSize(10).font('Helvetica-Bold').text(label, 70, y);
-                doc.font('Helvetica').text(value, 150, y);
+                doc.fontSize(10).font('Helvetica-Bold').text(label, 70, y, { lineBreak: false });
+                doc.font('Helvetica').text(value, 150, y, { lineBreak: false });
             };
 
             drawInfoRow('Location:', inspection.location?.name || 'N/A', startY + 20);
             drawInfoRow('Template:', inspection.template?.name || 'N/A', startY + 45);
             drawInfoRow('Inspector:', inspection.inspector?.name || 'N/A', startY + 70);
 
-            // Big Score Circle
             doc.circle(450, startY + 50, 45).lineWidth(5).strokeColor(scoreColor).stroke();
-            doc.fontSize(28).font('Helvetica-Bold').fillColor(scoreColor).text(`${score}%`, 405, startY + 38, { width: 90, align: 'center' });
-            doc.fontSize(10).font('Helvetica').fillColor(COLORS.secondary).text('TOTAL SCORE', 405, startY + 65, { width: 90, align: 'center' });
+            doc.fontSize(28).font('Helvetica-Bold').fillColor(scoreColor).text(`${score}%`, 405, startY + 38, { width: 90, align: 'center', lineBreak: false });
+            doc.fontSize(10).font('Helvetica').fillColor(COLORS.secondary).text('TOTAL SCORE', 405, startY + 65, { width: 90, align: 'center', lineBreak: false });
 
-            doc.moveDown(8);
+            syncY(doc, startY + 120);
 
-            // Sections
-            inspection.sections?.forEach((section, idx) => {
-                // Section Header
-                doc.rect(50, doc.y, doc.page.width - 100, 30).fill(COLORS.border);
-                doc.fillColor(COLORS.text).fontSize(12).font('Helvetica-Bold').text(section.name, 60, doc.y - 22);
-                doc.moveDown(2);
+            inspection.sections?.forEach((section) => {
+                ensureSpace(doc, 60);
+
+                doc.rect(50, doc.y, CONTENT_WIDTH, 30).fill(COLORS.border);
+                doc.fillColor(COLORS.text).fontSize(12).font('Helvetica-Bold').text(section.name, 60, doc.y + 8, { lineBreak: false });
+                syncY(doc, doc.y + 40);
 
                 section.items?.forEach((item) => {
-                    if (doc.y > 700) doc.addPage();
+                    ensureSpace(doc, 40);
 
                     const statusColor = item.status === 'pass' ? COLORS.success : COLORS.danger;
-                    const statusIcon = item.status === 'pass' ? 'P' : 'F'; // Simple text icon for now
-
-                    // Item Row
+                    const statusIcon = item.status === 'pass' ? 'P' : 'F';
                     const itemY = doc.y;
 
-                    // Status Indicator
                     doc.circle(60, itemY + 6, 10).fill(statusColor);
-                    doc.fillColor(COLORS.white).fontSize(8).font('Helvetica-Bold').text(statusIcon, 56, itemY + 3);
+                    doc.fillColor(COLORS.white).fontSize(8).font('Helvetica-Bold').text(statusIcon, 56, itemY + 3, { lineBreak: false });
+                    doc.fillColor(COLORS.text).fontSize(11).font('Helvetica').text(item.name, 85, itemY, { width: 350, lineBreak: false });
 
-                    // Item Name
-                    doc.fillColor(COLORS.text).fontSize(11).font('Helvetica').text(item.name, 85, itemY);
-
-                    // Score
                     if (item.score !== null && item.score !== undefined) {
-                        doc.fillColor(COLORS.secondary).fontSize(10).text(`${item.score}/5`, 450, itemY, { align: 'right' });
+                        doc.fillColor(COLORS.secondary).fontSize(10).text(`${item.score}/5`, 450, itemY, { align: 'right', lineBreak: false });
                     }
 
-                    doc.moveDown(0.5);
+                    let nextY = itemY + 18;
 
-                    // Comment
                     if (item.comment) {
-                        doc.fillColor(COLORS.secondary).fontSize(9).font('Helvetica-Oblique').text(`Note: ${item.comment}`, 85);
-                        doc.moveDown(0.5);
+                        doc.fillColor(COLORS.secondary).fontSize(9).font('Helvetica-Oblique').text(`Note: ${item.comment}`, 85, nextY, { width: 400 });
+                        nextY += 14;
                     }
 
-                    doc.moveDown(0.5);
-                    doc.moveTo(85, doc.y).lineTo(550, doc.y).strokeColor(COLORS.border).lineWidth(0.5).stroke();
-                    doc.moveDown(1);
+                    doc.moveTo(85, nextY).lineTo(550, nextY).strokeColor(COLORS.border).lineWidth(0.5).stroke();
+                    syncY(doc, nextY + 8);
                 });
 
-                doc.moveDown(1);
+                doc.y += 10;
             });
 
             drawFooter(doc);
             doc.end();
-
             stream.on('finish', () => resolve(outputPath));
             stream.on('error', reject);
         } catch (error) {
@@ -138,110 +205,35 @@ const generateInspectionPDF = (inspection, outputPath) => {
     });
 };
 
+// ─── Summary Report PDF ───
+
 const generateSummaryReport = (data, outputPath) => {
     return new Promise((resolve, reject) => {
         try {
             const doc = new PDFDocument({ margin: 50, bufferPages: true });
             const stream = fs.createWriteStream(outputPath);
-
             doc.pipe(stream);
 
             drawHeader(doc, 'Executive Summary', `${new Date(data.startDate).toLocaleDateString()} - ${new Date(data.endDate).toLocaleDateString()}`);
 
-            // Statistics Grid
             doc.fontSize(14).font('Helvetica-Bold').fillColor(COLORS.text).text('Performance Overview', 50);
-            doc.moveDown(1);
+            doc.moveDown(0.8);
 
-            const statsY = doc.y;
-            const boxWidth = 160;
-            const boxHeight = 80;
-
-            const drawStatCard = (x, label, value, subtext, color) => {
-                // Card Shadow/Border
-                doc.roundedRect(x, statsY, boxWidth, boxHeight, 8).fillAndStroke(COLORS.white, COLORS.border);
-                // Accent Line
-                doc.path(`M${x + 5},${statsY + 15} L${x + 5},${statsY + boxHeight - 15}`).lineWidth(3).strokeColor(color).stroke();
-
-                doc.fillColor(COLORS.secondary).fontSize(10).font('Helvetica').text(label, x + 20, statsY + 15);
-                doc.fillColor(COLORS.text).fontSize(24).font('Helvetica-Bold').text(String(value), x + 20, statsY + 35);
-                if (subtext) {
-                    doc.fillColor(color).fontSize(9).font('Helvetica-Bold').text(subtext, x + 20, statsY + 62);
-                }
-            };
-
+            const cards = [];
             if (data.type === 'all' || data.type === 'inspections') {
-                drawStatCard(50, 'Total Inspections', data.stats.totalInspections, 'Completed', COLORS.primary);
-
+                cards.push({ label: 'Total Inspections', value: data.stats.totalInspections, color: COLORS.primary });
                 const avgScore = data.stats.avgScore;
-                const scoreColor = avgScore >= 90 ? COLORS.success : avgScore >= 75 ? COLORS.warning : COLORS.danger;
-                drawStatCard(230, 'Average Score', `${avgScore}%`, 'Quality Rating', scoreColor);
+                cards.push({ label: 'Average Score', value: `${avgScore}%`, color: avgScore >= 90 ? COLORS.success : avgScore >= 75 ? COLORS.warning : COLORS.danger });
             }
-
             if (data.type === 'all' || data.type === 'tickets') {
-                const startX = (data.type === 'tickets') ? 50 : 410;
-                drawStatCard(startX, 'Total Tickets', data.stats.totalTickets, `${data.stats.resolvedTickets} Resolved`, COLORS.danger);
+                cards.push({ label: 'Total Tickets', value: data.stats.totalTickets, color: COLORS.danger });
             }
 
-            doc.moveDown(8);
+            const afterCards = drawStatCards(doc, cards, doc.y);
+            syncY(doc, afterCards + 10);
 
-            // Helper for Table
-            const drawTable = (title, columns, rows) => {
-                if (rows.length === 0) return;
-
-                if (doc.y > 650) doc.addPage();
-
-                doc.fontSize(14).font('Helvetica-Bold').fillColor(COLORS.text).text(title, 50);
-                doc.moveDown(1);
-
-                const startX = 50;
-                let currentY = doc.y;
-                const rowHeight = 30;
-
-                // Header Row
-                doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.primary);
-                doc.fillColor(COLORS.white).fontSize(10).font('Helvetica-Bold');
-
-                columns.forEach((col, i) => {
-                    doc.text(col.header, startX + col.x, currentY + 10, { width: col.width, align: 'left' });
-                });
-
-                currentY += rowHeight;
-
-                // Data Rows
-                doc.font('Helvetica').fontSize(10);
-                rows.forEach((row, i) => {
-                    if (currentY > 700) {
-                        doc.addPage();
-                        currentY = 50;
-                        // Redraw header on new page? Optional, keeping simple for now.
-                    }
-
-                    // Zebra striping
-                    if (i % 2 === 0) {
-                        doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.accent);
-                    }
-
-                    doc.fillColor(COLORS.text);
-                    columns.forEach((col) => {
-                        let text = row[col.key];
-                        // Custom formatting
-                        if (col.format) text = col.format(row);
-
-                        // Color overrides
-                        if (col.color) doc.fillColor(col.color(row));
-                        else doc.fillColor(COLORS.text);
-
-                        doc.text(text, startX + col.x, currentY + 10, { width: col.width, lineBreak: false, ellipsis: true });
-                    });
-
-                    currentY += rowHeight;
-                });
-                doc.moveDown(2);
-            };
-
-            // Inspections Table
             if (data.type === 'all' || data.type === 'inspections') {
-                drawTable('Recent Inspections', [
+                drawTable(doc, 'Recent Inspections', [
                     { header: 'Date', key: 'createdAt', x: 10, width: 80, format: r => new Date(r.createdAt).toLocaleDateString() },
                     { header: 'Location', key: 'location', x: 100, width: 120, format: r => r.location?.name || 'N/A' },
                     { header: 'Template', key: 'template', x: 230, width: 120, format: r => r.template?.name || 'N/A' },
@@ -250,9 +242,8 @@ const generateSummaryReport = (data, outputPath) => {
                 ], data.inspections);
             }
 
-            // Tickets Table
             if (data.type === 'all' || data.type === 'tickets') {
-                drawTable('Recent Tickets', [
+                drawTable(doc, 'Recent Tickets', [
                     { header: 'Date', key: 'createdAt', x: 10, width: 80, format: r => new Date(r.createdAt).toLocaleDateString() },
                     { header: 'Title', key: 'title', x: 100, width: 120 },
                     { header: 'Location', key: 'location', x: 230, width: 120, format: r => r.location?.name || 'N/A' },
@@ -263,7 +254,6 @@ const generateSummaryReport = (data, outputPath) => {
 
             drawFooter(doc);
             doc.end();
-
             stream.on('finish', () => resolve(outputPath));
             stream.on('error', reject);
         } catch (error) {
@@ -272,91 +262,43 @@ const generateSummaryReport = (data, outputPath) => {
     });
 };
 
-// Generate Overall Report PDF
+// ─── Overall Report PDF ───
+
 const generateOverallReportPDF = (data, outputPath) => {
     return new Promise((resolve, reject) => {
         try {
             const doc = new PDFDocument({ margin: 50, bufferPages: true });
             const stream = fs.createWriteStream(outputPath);
-
             doc.pipe(stream);
 
             const period = `${new Date(data.period.start).toLocaleDateString()} - ${new Date(data.period.end).toLocaleDateString()}`;
             drawHeader(doc, 'Overall Report', period);
 
-            // Summary Stats
             doc.fontSize(14).font('Helvetica-Bold').fillColor(COLORS.text).text('Performance Overview', 50);
-            doc.moveDown(1);
+            doc.moveDown(0.8);
 
-            const statsY = doc.y;
-            const boxWidth = 150;
-            const boxHeight = 60;
+            const afterCards = drawStatCards(doc, [
+                { label: 'Total Inspections', value: data.overall.totalInspections, color: COLORS.primary },
+                { label: 'Avg Score', value: `${data.overall.avgScore}%`, color: COLORS.success },
+                { label: 'APPA Score', value: data.overall.avgAppaScore, color: COLORS.primary },
+                { label: 'Total Tickets', value: data.overall.totalTickets, color: COLORS.danger },
+                { label: 'Open Tickets', value: data.overall.openTickets, color: COLORS.warning },
+                { label: 'Resolved', value: data.overall.resolvedTickets, color: COLORS.success },
+            ], doc.y);
+            syncY(doc, afterCards + 10);
 
-            const drawStatCard = (x, label, value, color) => {
-                doc.roundedRect(x, statsY, boxWidth, boxHeight, 8).fillAndStroke(COLORS.white, COLORS.border);
-                doc.path(`M${x + 5},${statsY + 10} L${x + 5},${statsY + boxHeight - 10}`).lineWidth(3).strokeColor(color).stroke();
-                doc.fillColor(COLORS.secondary).fontSize(9).font('Helvetica').text(label, x + 20, statsY + 10);
-                doc.fillColor(COLORS.text).fontSize(20).font('Helvetica-Bold').text(String(value), x + 20, statsY + 30);
-            };
-
-            drawStatCard(50, 'Total Inspections', data.overall.totalInspections, COLORS.primary);
-            drawStatCard(220, 'Avg Score', `${data.overall.avgScore}%`, COLORS.success);
-            drawStatCard(390, 'Total Tickets', data.overall.totalTickets, COLORS.danger);
-            drawStatCard(50, 'Open Tickets', data.overall.openTickets, COLORS.warning);
-            drawStatCard(220, 'Resolved', data.overall.resolvedTickets, COLORS.success);
-            drawStatCard(390, 'APPA Score', data.overall.avgAppaScore, COLORS.primary);
-
-            doc.moveDown(8);
-
-            // Location Performance Table
             if (data.locationPerformance && data.locationPerformance.length > 0) {
-                doc.fontSize(14).font('Helvetica-Bold').fillColor(COLORS.text).text('Lowest-Performing Locations', 50);
-                doc.moveDown(1);
-
-                const startX = 50;
-                let currentY = doc.y;
-                const rowHeight = 25;
-
-                // Header
-                doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.primary);
-                doc.fillColor(COLORS.white).fontSize(10).font('Helvetica-Bold');
-                doc.text('Location', startX + 10, currentY + 8);
-                doc.text('Inspections', startX + 200, currentY + 8);
-                doc.text('Avg Score', startX + 300, currentY + 8);
-                doc.text('Tickets', startX + 400, currentY + 8);
-
-                currentY += rowHeight;
-
-                // Data Rows
-                doc.font('Helvetica').fontSize(10);
-                data.locationPerformance.slice(0, 20).forEach((loc, i) => {
-                    if (currentY > 700) {
-                        doc.addPage();
-                        currentY = 50;
-                    }
-
-                    if (i % 2 === 0) {
-                        doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.accent);
-                    }
-
-                    doc.fillColor(COLORS.text);
-                    doc.text(loc.locationName || 'Unknown', startX + 10, currentY + 8, { width: 180, ellipsis: true });
-                    doc.text(String(loc.inspectionCount), startX + 200, currentY + 8);
-                    
-                    const scoreColor = loc.averageScore >= 90 ? COLORS.success : loc.averageScore >= 75 ? COLORS.warning : COLORS.danger;
-                    doc.fillColor(scoreColor);
-                    doc.text(`${loc.averageScore}%`, startX + 300, currentY + 8);
-                    
-                    doc.fillColor(COLORS.text);
-                    doc.text(String(loc.ticketCount), startX + 400, currentY + 8);
-
-                    currentY += rowHeight;
-                });
+                drawTable(doc, 'Lowest-Performing Locations', [
+                    { header: 'Location', x: 10, width: 180, key: 'locationName', format: r => r.locationName || 'Unknown' },
+                    { header: 'Inspections', x: 200, width: 80, key: 'inspectionCount', format: r => String(r.inspectionCount) },
+                    { header: 'Avg Score', x: 300, width: 80, key: 'averageScore', format: r => `${r.averageScore}%`, color: r => r.averageScore >= 90 ? COLORS.success : r.averageScore >= 75 ? COLORS.warning : COLORS.danger },
+                    { header: 'APPA', x: 390, width: 50, key: 'avgAppaScore', format: r => String(r.avgAppaScore) },
+                    { header: 'Tickets', x: 445, width: 50, key: 'ticketCount', format: r => String(r.ticketCount) }
+                ], data.locationPerformance.slice(0, 20));
             }
 
             drawFooter(doc);
             doc.end();
-
             stream.on('finish', () => resolve(outputPath));
             stream.on('error', reject);
         } catch (error) {
@@ -365,89 +307,41 @@ const generateOverallReportPDF = (data, outputPath) => {
     });
 };
 
-// Generate Tickets Report PDF
+// ─── Tickets Report PDF ───
+
 const generateTicketsReportPDF = (data, outputPath) => {
     return new Promise((resolve, reject) => {
         try {
             const doc = new PDFDocument({ margin: 50, bufferPages: true });
             const stream = fs.createWriteStream(outputPath);
-
             doc.pipe(stream);
 
             const period = `${new Date(data.period.start).toLocaleDateString()} - ${new Date(data.period.end).toLocaleDateString()}`;
             drawHeader(doc, 'Tickets Report', period);
 
-            // Responsiveness Metrics
             doc.fontSize(14).font('Helvetica-Bold').fillColor(COLORS.text).text('Team Responsiveness', 50);
-            doc.moveDown(1);
+            doc.moveDown(0.8);
 
-            const statsY = doc.y;
-            const boxWidth = 150;
-            const boxHeight = 60;
+            const afterCards = drawStatCards(doc, [
+                { label: 'Total Tickets', value: data.responsiveness.totalTickets, color: COLORS.primary },
+                { label: 'Avg Response', value: `${data.responsiveness.avgResponseTime}h`, color: COLORS.warning },
+                { label: 'Avg Resolution', value: `${data.responsiveness.avgResolutionTime}h`, color: COLORS.success },
+                { label: 'Response Rate', value: `${data.responsiveness.responseRate}%`, color: COLORS.primary },
+            ], doc.y);
+            syncY(doc, afterCards + 10);
 
-            const drawStatCard = (x, label, value, color) => {
-                doc.roundedRect(x, statsY, boxWidth, boxHeight, 8).fillAndStroke(COLORS.white, COLORS.border);
-                doc.path(`M${x + 5},${statsY + 10} L${x + 5},${statsY + boxHeight - 10}`).lineWidth(3).strokeColor(color).stroke();
-                doc.fillColor(COLORS.secondary).fontSize(9).font('Helvetica').text(label, x + 20, statsY + 10);
-                doc.fillColor(COLORS.text).fontSize(20).font('Helvetica-Bold').text(String(value), x + 20, statsY + 30);
-            };
-
-            drawStatCard(50, 'Total Tickets', data.responsiveness.totalTickets, COLORS.primary);
-            drawStatCard(220, 'Avg Response', `${data.responsiveness.avgResponseTime}h`, COLORS.warning);
-            drawStatCard(390, 'Avg Resolution', `${data.responsiveness.avgResolutionTime}h`, COLORS.success);
-            drawStatCard(50, 'Response Rate', `${data.responsiveness.responseRate}%`, COLORS.primary);
-
-            doc.moveDown(8);
-
-            // Location Complaints Table
             if (data.locationComplaints && data.locationComplaints.length > 0) {
-                doc.fontSize(14).font('Helvetica-Bold').fillColor(COLORS.text).text('Locations with Most Complaints', 50);
-                doc.moveDown(1);
-
-                const startX = 50;
-                let currentY = doc.y;
-                const rowHeight = 25;
-
-                // Header
-                doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.primary);
-                doc.fillColor(COLORS.white).fontSize(10).font('Helvetica-Bold');
-                doc.text('Location', startX + 10, currentY + 8);
-                doc.text('Total', startX + 200, currentY + 8);
-                doc.text('Open', startX + 280, currentY + 8);
-                doc.text('Resolved', startX + 340, currentY + 8);
-                doc.text('Avg Response', startX + 420, currentY + 8);
-
-                currentY += rowHeight;
-
-                // Data Rows
-                doc.font('Helvetica').fontSize(10);
-                data.locationComplaints.slice(0, 20).forEach((loc, i) => {
-                    if (currentY > 700) {
-                        doc.addPage();
-                        currentY = 50;
-                    }
-
-                    if (i % 2 === 0) {
-                        doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.accent);
-                    }
-
-                    doc.fillColor(COLORS.text);
-                    doc.text(loc.locationName || 'Unknown', startX + 10, currentY + 8, { width: 180, ellipsis: true });
-                    doc.text(String(loc.totalTickets), startX + 200, currentY + 8);
-                    doc.fillColor(COLORS.danger);
-                    doc.text(String(loc.openTickets), startX + 280, currentY + 8);
-                    doc.fillColor(COLORS.success);
-                    doc.text(String(loc.resolvedTickets), startX + 340, currentY + 8);
-                    doc.fillColor(COLORS.text);
-                    doc.text(loc.avgResponseTime > 0 ? `${loc.avgResponseTime}h` : 'N/A', startX + 420, currentY + 8);
-
-                    currentY += rowHeight;
-                });
+                drawTable(doc, 'Locations with Most Complaints', [
+                    { header: 'Location', x: 10, width: 180, key: 'locationName', format: r => r.locationName || 'Unknown' },
+                    { header: 'Total', x: 200, width: 60, key: 'totalTickets', format: r => String(r.totalTickets) },
+                    { header: 'Open', x: 270, width: 60, key: 'openTickets', format: r => String(r.openTickets), color: () => COLORS.danger },
+                    { header: 'Resolved', x: 340, width: 70, key: 'resolvedTickets', format: r => String(r.resolvedTickets), color: () => COLORS.success },
+                    { header: 'Avg Response', x: 420, width: 80, key: 'avgResponseTime', format: r => r.avgResponseTime > 0 ? `${r.avgResponseTime}h` : 'N/A' }
+                ], data.locationComplaints.slice(0, 20));
             }
 
             drawFooter(doc);
             doc.end();
-
             stream.on('finish', () => resolve(outputPath));
             stream.on('error', reject);
         } catch (error) {
@@ -456,80 +350,41 @@ const generateTicketsReportPDF = (data, outputPath) => {
     });
 };
 
-// Generate Inspector Leaderboard PDF
+// ─── Inspector Leaderboard PDF ───
+
 const generateInspectorLeaderboardPDF = (data, outputPath) => {
     return new Promise((resolve, reject) => {
         try {
             const doc = new PDFDocument({ margin: 50, bufferPages: true });
             const stream = fs.createWriteStream(outputPath);
-
             doc.pipe(stream);
 
             const period = `${new Date(data.period.start).toLocaleDateString()} - ${new Date(data.period.end).toLocaleDateString()}`;
             drawHeader(doc, 'Inspector Leaderboard', period);
 
-            // Summary
             doc.fontSize(14).font('Helvetica-Bold').fillColor(COLORS.text).text('Summary', 50);
-            doc.moveDown(1);
+            doc.moveDown(0.8);
 
-            doc.fontSize(10).font('Helvetica');
-            doc.text(`Total Inspectors: ${data.summary.totalInspectors}`, 50);
-            doc.text(`Total Inspections: ${data.summary.totalInspections}`, 200);
-            doc.text(`Overall Avg Score: ${data.summary.overallAvgScore}%`, 350);
+            const afterCards = drawStatCards(doc, [
+                { label: 'Total Inspectors', value: data.summary.totalInspectors, color: COLORS.primary },
+                { label: 'Total Inspections', value: data.summary.totalInspections, color: COLORS.success },
+                { label: 'Overall Avg Score', value: `${data.summary.overallAvgScore}%`, color: data.summary.overallAvgScore >= 90 ? COLORS.success : data.summary.overallAvgScore >= 75 ? COLORS.warning : COLORS.danger },
+            ], doc.y);
+            syncY(doc, afterCards + 10);
 
-            doc.moveDown(4);
-
-            // Leaderboard Table
             if (data.leaderboard && data.leaderboard.length > 0) {
-                doc.fontSize(14).font('Helvetica-Bold').fillColor(COLORS.text).text('Inspector Rankings', 50);
-                doc.moveDown(1);
-
-                const startX = 50;
-                let currentY = doc.y;
-                const rowHeight = 30;
-
-                // Header
-                doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.primary);
-                doc.fillColor(COLORS.white).fontSize(10).font('Helvetica-Bold');
-                doc.text('Rank', startX + 10, currentY + 10);
-                doc.text('Inspector', startX + 60, currentY + 10);
-                doc.text('Inspections', startX + 250, currentY + 10);
-                doc.text('Avg Score', startX + 350, currentY + 10);
-                doc.text('APPA', startX + 430, currentY + 10);
-
-                currentY += rowHeight;
-
-                // Data Rows
-                doc.font('Helvetica').fontSize(10);
-                data.leaderboard.forEach((inspector, i) => {
-                    if (currentY > 700) {
-                        doc.addPage();
-                        currentY = 50;
-                    }
-
-                    if (i % 2 === 0) {
-                        doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.accent);
-                    }
-
-                    doc.fillColor(COLORS.text);
-                    doc.text(`#${i + 1}`, startX + 10, currentY + 10);
-                    doc.text(inspector.inspectorName || 'Unknown', startX + 60, currentY + 10, { width: 180, ellipsis: true });
-                    doc.text(String(inspector.inspectionCount), startX + 250, currentY + 10);
-                    
-                    const scoreColor = inspector.averageScore >= 90 ? COLORS.success : inspector.averageScore >= 75 ? COLORS.warning : COLORS.danger;
-                    doc.fillColor(scoreColor);
-                    doc.text(`${inspector.averageScore}%`, startX + 350, currentY + 10);
-                    
-                    doc.fillColor(COLORS.text);
-                    doc.text(String(inspector.avgAppaScore), startX + 430, currentY + 10);
-
-                    currentY += rowHeight;
-                });
+                const leaderboardWithRank = data.leaderboard.map((item, i) => ({ ...item, rank: i + 1 }));
+                drawTable(doc, 'Inspector Rankings', [
+                    { header: 'Rank', x: 10, width: 40, key: 'rank', format: r => `#${r.rank}` },
+                    { header: 'Inspector', x: 60, width: 180, key: 'inspectorName', format: r => r.inspectorName || 'Unknown' },
+                    { header: 'Inspections', x: 250, width: 80, key: 'inspectionCount', format: r => String(r.inspectionCount) },
+                    { header: 'Avg Score', x: 340, width: 80, key: 'averageScore', format: r => `${r.averageScore}%`, color: r => r.averageScore >= 90 ? COLORS.success : r.averageScore >= 75 ? COLORS.warning : COLORS.danger },
+                    { header: 'APPA', x: 430, width: 60, key: 'avgAppaScore', format: r => String(r.avgAppaScore) }
+                ], leaderboardWithRank);
             }
 
             drawFooter(doc);
             doc.end();
-
             stream.on('finish', () => resolve(outputPath));
             stream.on('error', reject);
         } catch (error) {
@@ -538,78 +393,39 @@ const generateInspectorLeaderboardPDF = (data, outputPath) => {
     });
 };
 
-// Generate Private Inspections Report PDF
+// ─── Private Inspections Report PDF ───
+
 const generatePrivateInspectionsReportPDF = (data, outputPath) => {
     return new Promise((resolve, reject) => {
         try {
             const doc = new PDFDocument({ margin: 50, bufferPages: true });
             const stream = fs.createWriteStream(outputPath);
-
             doc.pipe(stream);
 
             const period = `${new Date(data.period.start).toLocaleDateString()} - ${new Date(data.period.end).toLocaleDateString()}`;
             drawHeader(doc, 'Private Inspections Report', period);
 
-            // Summary
             doc.fontSize(14).font('Helvetica-Bold').fillColor(COLORS.text).text('Summary', 50);
-            doc.moveDown(1);
+            doc.moveDown(0.8);
 
-            doc.fontSize(10).font('Helvetica');
-            doc.text(`Total Private Inspections: ${data.summary.totalPrivateInspections}`, 50);
-            doc.text(`Average Score: ${data.summary.avgScore}%`, 250);
-            doc.text(`Avg APPA Score: ${data.summary.avgAppaScore}`, 400);
+            const afterCards = drawStatCards(doc, [
+                { label: 'Total Private Inspections', value: data.summary.totalPrivateInspections, color: COLORS.primary },
+                { label: 'Average Score', value: `${data.summary.avgScore}%`, color: data.summary.avgScore >= 90 ? COLORS.success : data.summary.avgScore >= 75 ? COLORS.warning : COLORS.danger },
+                { label: 'Avg APPA Score', value: data.summary.avgAppaScore, color: COLORS.primary },
+            ], doc.y);
+            syncY(doc, afterCards + 10);
 
-            doc.moveDown(4);
-
-            // Inspector Performance Table
             if (data.inspectorPerformance && data.inspectorPerformance.length > 0) {
-                doc.fontSize(14).font('Helvetica-Bold').fillColor(COLORS.text).text('Inspector Performance (Internal)', 50);
-                doc.moveDown(1);
-
-                const startX = 50;
-                let currentY = doc.y;
-                const rowHeight = 30;
-
-                // Header
-                doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.primary);
-                doc.fillColor(COLORS.white).fontSize(10).font('Helvetica-Bold');
-                doc.text('Inspector', startX + 10, currentY + 10);
-                doc.text('Inspections', startX + 250, currentY + 10);
-                doc.text('Avg Score', startX + 350, currentY + 10);
-                doc.text('APPA', startX + 430, currentY + 10);
-
-                currentY += rowHeight;
-
-                // Data Rows
-                doc.font('Helvetica').fontSize(10);
-                data.inspectorPerformance.forEach((perf, i) => {
-                    if (currentY > 700) {
-                        doc.addPage();
-                        currentY = 50;
-                    }
-
-                    if (i % 2 === 0) {
-                        doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.accent);
-                    }
-
-                    doc.fillColor(COLORS.text);
-                    doc.text(perf.inspectorName || 'Unknown', startX + 10, currentY + 10, { width: 230, ellipsis: true });
-                    doc.text(String(perf.inspectionCount), startX + 250, currentY + 10);
-                    
-                    const scoreColor = perf.averageScore >= 90 ? COLORS.success : perf.averageScore >= 75 ? COLORS.warning : COLORS.danger;
-                    doc.fillColor(scoreColor);
-                    doc.text(`${perf.averageScore}%`, startX + 350, currentY + 10);
-                    
-                    doc.fillColor(COLORS.text);
-                    doc.text(String(perf.avgAppaScore), startX + 430, currentY + 10);
-
-                    currentY += rowHeight;
-                });
+                drawTable(doc, 'Inspector Performance (Internal)', [
+                    { header: 'Inspector', x: 10, width: 230, key: 'inspectorName', format: r => r.inspectorName || 'Unknown' },
+                    { header: 'Inspections', x: 250, width: 80, key: 'inspectionCount', format: r => String(r.inspectionCount) },
+                    { header: 'Avg Score', x: 340, width: 80, key: 'averageScore', format: r => `${r.averageScore}%`, color: r => r.averageScore >= 90 ? COLORS.success : r.averageScore >= 75 ? COLORS.warning : COLORS.danger },
+                    { header: 'APPA', x: 430, width: 60, key: 'avgAppaScore', format: r => String(r.avgAppaScore) }
+                ], data.inspectorPerformance);
             }
 
             drawFooter(doc);
             doc.end();
-
             stream.on('finish', () => resolve(outputPath));
             stream.on('error', reject);
         } catch (error) {
@@ -618,122 +434,72 @@ const generatePrivateInspectionsReportPDF = (data, outputPath) => {
     });
 };
 
-// Generate Inspection Forms Report PDF
+// ─── Inspection Forms Report PDF ───
+
 const generateInspectionFormsReportPDF = (data, outputPath) => {
     return new Promise((resolve, reject) => {
         try {
             const doc = new PDFDocument({ margin: 50, bufferPages: true });
             const stream = fs.createWriteStream(outputPath);
-
             doc.pipe(stream);
 
             const period = `${new Date(data.period.start).toLocaleDateString()} - ${new Date(data.period.end).toLocaleDateString()}`;
             drawHeader(doc, 'Inspection Forms Report', period);
 
-            // Area Type Performance
             if (data.areaTypePerformance && data.areaTypePerformance.length > 0) {
-                doc.fontSize(14).font('Helvetica-Bold').fillColor(COLORS.text).text('Area Type Performance', 50);
-                doc.moveDown(1);
+                ensureSpace(doc, 60);
+                doc.fontSize(14).font('Helvetica-Bold').fillColor(COLORS.text).text('Area Type Performance', 50, doc.y);
+                doc.moveDown(0.8);
 
-                const startX = 50;
-                let currentY = doc.y;
-                const rowHeight = 30;
+                data.areaTypePerformance.forEach((area, areaIdx) => {
+                    const itemCount = Math.min(area.lowestPerformingItems?.length || 0, 3);
+                    const neededHeight = 30 + itemCount * 18 + 10;
+                    ensureSpace(doc, neededHeight);
 
-                // Header
-                doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.primary);
-                doc.fillColor(COLORS.white).fontSize(10).font('Helvetica-Bold');
-                doc.text('Area Type', startX + 10, currentY + 10);
-                doc.text('Inspections', startX + 250, currentY + 10);
-                doc.text('Avg Score', startX + 350, currentY + 10);
-
-                currentY += rowHeight;
-
-                // Data Rows
-                doc.font('Helvetica').fontSize(10);
-                data.areaTypePerformance.forEach((area, i) => {
-                    if (currentY > 700) {
-                        doc.addPage();
-                        currentY = 50;
+                    const rowY = doc.y;
+                    if (areaIdx % 2 === 0) {
+                        doc.rect(50, rowY, CONTENT_WIDTH, 28).fill(COLORS.accent);
                     }
 
-                    if (i % 2 === 0) {
-                        doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.accent);
-                    }
-
-                    doc.fillColor(COLORS.text);
                     const areaName = area.areaType.charAt(0).toUpperCase() + area.areaType.slice(1);
-                    doc.text(areaName, startX + 10, currentY + 10, { width: 230, ellipsis: true });
-                    doc.text(String(area.inspectionCount), startX + 250, currentY + 10);
-                    
+                    doc.fillColor(COLORS.text).fontSize(11).font('Helvetica-Bold')
+                        .text(areaName, 60, rowY + 8, { width: 200, lineBreak: false });
+                    doc.fillColor(COLORS.secondary).fontSize(10).font('Helvetica')
+                        .text(`${area.inspectionCount} inspections`, 270, rowY + 8, { width: 100, lineBreak: false });
+
                     const scoreColor = area.averageScore >= 90 ? COLORS.success : area.averageScore >= 75 ? COLORS.warning : COLORS.danger;
-                    doc.fillColor(scoreColor);
-                    doc.text(`${area.averageScore}%`, startX + 350, currentY + 10);
+                    doc.fillColor(scoreColor).fontSize(12).font('Helvetica-Bold')
+                        .text(`${area.averageScore}%`, 420, rowY + 8, { width: 80, lineBreak: false });
 
-                    currentY += rowHeight;
+                    let curY = rowY + 30;
 
-                    // Lowest performing items (first 3)
                     if (area.lowestPerformingItems && area.lowestPerformingItems.length > 0) {
-                        doc.fillColor(COLORS.secondary).fontSize(9);
-                        area.lowestPerformingItems.slice(0, 3).forEach((item, itemIdx) => {
-                            if (currentY > 700) {
+                        doc.fillColor(COLORS.secondary).fontSize(9).font('Helvetica');
+                        area.lowestPerformingItems.slice(0, 3).forEach(item => {
+                            if (curY > PAGE_BOTTOM) {
                                 doc.addPage();
-                                currentY = 50;
+                                curY = 50;
                             }
-                            doc.text(`  • ${item.itemName}: ${item.failRate}% fail rate`, startX + 20, currentY + 5, { width: 450, ellipsis: true });
-                            currentY += 20;
+                            doc.text(`  \u2022 ${item.itemName}: ${item.failRate}% fail rate`, 70, curY, { width: 430, lineBreak: false });
+                            curY += 16;
                         });
-                        currentY += 5;
                     }
+
+                    syncY(doc, curY + 6);
                 });
             }
 
-            doc.moveDown(2);
-
-            // Template Performance
             if (data.templatePerformance && data.templatePerformance.length > 0) {
-                doc.fontSize(14).font('Helvetica-Bold').fillColor(COLORS.text).text('Template Performance', 50);
-                doc.moveDown(1);
-
-                const startX = 50;
-                let currentY = doc.y;
-                const rowHeight = 30;
-
-                // Header
-                doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.primary);
-                doc.fillColor(COLORS.white).fontSize(10).font('Helvetica-Bold');
-                doc.text('Template', startX + 10, currentY + 10);
-                doc.text('Inspections', startX + 300, currentY + 10);
-                doc.text('Avg Score', startX + 400, currentY + 10);
-
-                currentY += rowHeight;
-
-                // Data Rows
-                doc.font('Helvetica').fontSize(10);
-                data.templatePerformance.forEach((template, i) => {
-                    if (currentY > 700) {
-                        doc.addPage();
-                        currentY = 50;
-                    }
-
-                    if (i % 2 === 0) {
-                        doc.rect(startX, currentY, 500, rowHeight).fill(COLORS.accent);
-                    }
-
-                    doc.fillColor(COLORS.text);
-                    doc.text(template.templateName || 'Unknown', startX + 10, currentY + 10, { width: 280, ellipsis: true });
-                    doc.text(String(template.inspectionCount), startX + 300, currentY + 10);
-                    
-                    const scoreColor = template.averageScore >= 90 ? COLORS.success : template.averageScore >= 75 ? COLORS.warning : COLORS.danger;
-                    doc.fillColor(scoreColor);
-                    doc.text(`${template.averageScore}%`, startX + 400, currentY + 10);
-
-                    currentY += rowHeight;
-                });
+                doc.y += 10;
+                drawTable(doc, 'Template Performance', [
+                    { header: 'Template', x: 10, width: 270, key: 'templateName', format: r => r.templateName || 'Unknown' },
+                    { header: 'Inspections', x: 290, width: 100, key: 'inspectionCount', format: r => String(r.inspectionCount) },
+                    { header: 'Avg Score', x: 400, width: 90, key: 'averageScore', format: r => `${r.averageScore}%`, color: r => r.averageScore >= 90 ? COLORS.success : r.averageScore >= 75 ? COLORS.warning : COLORS.danger }
+                ], data.templatePerformance);
             }
 
             drawFooter(doc);
             doc.end();
-
             stream.on('finish', () => resolve(outputPath));
             stream.on('error', reject);
         } catch (error) {
@@ -742,8 +508,8 @@ const generateInspectionFormsReportPDF = (data, outputPath) => {
     });
 };
 
-module.exports = { 
-    generateInspectionPDF, 
+module.exports = {
+    generateInspectionPDF,
     generateSummaryReport,
     generateOverallReportPDF,
     generateTicketsReportPDF,
