@@ -4,20 +4,14 @@
  * Sends push notifications via FCM using google-auth-library + axios.
  *
  * Required ENV variables:
- *   FIREBASE_PROJECT_ID      - Firebase project ID
- *   FIREBASE_CLIENT_EMAIL    - Service account email
- *   FIREBASE_PRIVATE_KEY     - Service account private key (with \n line breaks)
- *   PUSH_NOTIFICATIONS_ENABLED - "true" to enable
+ *   FCM_SERVICE_ACCOUNT         - Full Firebase service account JSON
+ *   PUSH_NOTIFICATIONS_ENABLED  - "true" to enable
  */
 
 const { GoogleAuth } = require('google-auth-library');
 const axios = require('axios');
 const User = require('../../../models/userModel');
 
-/**
- * Push notification message builders for each event type.
- * Returns { title, body, data } for FCM.
- */
 const PUSH_MESSAGES = {
     TICKET_ASSIGNED: (data) => ({
         title: 'New Ticket Assigned',
@@ -84,16 +78,10 @@ class PushChannel {
         this.initialized = false;
     }
 
-    /**
-     * Initialize Firebase Auth from env variables
-     */
     initialize() {
         if (this.initialized) return;
 
         const enabled = process.env.PUSH_NOTIFICATIONS_ENABLED === 'true';
-        const projectId = process.env.FIREBASE_PROJECT_ID;
-        const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-        const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
 
         if (!enabled) {
             console.log('📱 Push channel: PUSH_NOTIFICATIONS_ENABLED is not true — Push disabled.');
@@ -101,18 +89,35 @@ class PushChannel {
             return;
         }
 
-        if (!projectId || !clientEmail || !privateKey) {
-            console.warn('⚠️ Push channel: Missing FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, or FIREBASE_PRIVATE_KEY — Push disabled.');
+        const fcmJson = process.env.FCM_SERVICE_ACCOUNT;
+        if (!fcmJson) {
+            console.warn('⚠️ Push channel: FCM_SERVICE_ACCOUNT env variable not found — Push disabled.');
             this.initialized = true;
             return;
         }
 
-        this.projectId = projectId;
+        let serviceAccount;
+        try {
+            serviceAccount = JSON.parse(fcmJson);
+        } catch (err) {
+            console.error('❌ Push channel: Failed to parse FCM_SERVICE_ACCOUNT JSON —', err.message);
+            this.initialized = true;
+            return;
+        }
+
+        const { project_id, client_email, private_key } = serviceAccount;
+        if (!project_id || !client_email || !private_key) {
+            console.warn('⚠️ Push channel: FCM_SERVICE_ACCOUNT missing project_id, client_email, or private_key — Push disabled.');
+            this.initialized = true;
+            return;
+        }
+
+        this.projectId = project_id;
 
         this.auth = new GoogleAuth({
             credentials: {
-                client_email: clientEmail,
-                private_key: privateKey,
+                client_email,
+                private_key: private_key.replace(/\\n/g, '\n'),
             },
             scopes: [
                 'https://www.googleapis.com/auth/firebase.messaging',
@@ -121,21 +126,15 @@ class PushChannel {
 
         this.enabled = true;
         this.initialized = true;
-        console.log(`📱 Push channel initialized (Project: ${projectId})`);
+        console.log(`✅ FCM_SERVICE_ACCOUNT loaded (Project: ${project_id} | Email: ${client_email})`);
     }
 
-    /**
-     * Get a fresh OAuth2 access token for FCM
-     */
     async getAccessToken() {
         const client = await this.auth.getClient();
         const tokenResponse = await client.getAccessToken();
         return tokenResponse.token;
     }
 
-    /**
-     * Send push notifications via FCM HTTP v1 API
-     */
     async send({ event, recipients, data, meta }) {
         if (!this.initialized) {
             this.initialize();
@@ -154,13 +153,11 @@ class PushChannel {
 
         const { title, body, data: pushData } = messageFn(data);
 
-        // Log all recipients and their FCM token status
         console.log(`📱 [PUSH] Event: "${event.key}" | Total recipients: ${recipients.length}`);
         recipients.forEach((r, i) => {
             console.log(`   └─ Recipient ${i + 1}: ${r.name || r.email} | fcmToken: ${r.fcmToken ? r.fcmToken.substring(0, 20) + '...' : 'NONE'} | pushEnabled: ${r.notificationPush !== false}`);
         });
 
-        // Filter: must have fcmToken AND notifications.push not explicitly false
         const pushRecipients = recipients.filter(r => r.fcmToken && r.notificationPush !== false);
         if (pushRecipients.length === 0) {
             console.log(`📱 [PUSH] Skipped "${event.key}" — no recipients with FCM tokens`);
@@ -169,7 +166,14 @@ class PushChannel {
 
         console.log(`📱 [PUSH] Sending to ${pushRecipients.length} recipient(s)...`);
 
-        const accessToken = await this.getAccessToken();
+        let accessToken;
+        try {
+            accessToken = await this.getAccessToken();
+        } catch (tokenErr) {
+            console.error(`❌ [PUSH] Failed to get access token:`, tokenErr.message);
+            return { sent: 0, failed: pushRecipients.length, details: [{ error: 'Access token failed: ' + tokenErr.message }] };
+        }
+
         const url = `https://fcm.googleapis.com/v1/projects/${this.projectId}/messages:send`;
         const results = [];
 
@@ -222,7 +226,6 @@ class PushChannel {
                     error: errMsg,
                 });
 
-                // Handle invalid/expired FCM tokens — clear from DB
                 if (
                     errCode === 'UNREGISTERED' ||
                     errMsg.includes('not a valid FCM registration token') ||
@@ -245,9 +248,6 @@ class PushChannel {
         };
     }
 
-    /**
-     * Verify Firebase connection
-     */
     async verify() {
         if (!this.initialized) this.initialize();
         if (!this.enabled) return { connected: false, reason: 'Push not enabled' };
