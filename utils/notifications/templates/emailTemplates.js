@@ -233,6 +233,104 @@ const ticketUrgent = (data) => {
 };
 
 
+const ticketReopened = (data) => {
+    const { ticket, reopenedByName } = data;
+    const subject = `🔁 Ticket Reopened: ${ticket.title}`;
+    const html = baseLayout(subject, `
+        <div style="background: #fff7ed; border: 2px solid #fed7aa; border-radius: 8px; padding: 16px; margin-bottom: 24px; text-align: center;">
+            <h2 style="margin: 0 0 4px 0; color: #c2410c; font-size: 20px;">🔁 Ticket Reopened</h2>
+            <p style="margin: 0; color: #9a3412; font-size: 14px;">This ticket requires further attention</p>
+        </div>
+        
+        <table width="100%" cellpadding="0" cellspacing="0" style="background: #f8fafc; border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+            <tr><td>
+                <table width="100%" cellpadding="0" cellspacing="0">
+                    ${infoRow('Title', `<strong>${ticket.title}</strong>`)}
+                    ${infoRow('Priority', badge(ticket.priority?.toUpperCase(), priorityColors[ticket.priority] || '#6b7280'))}
+                    ${infoRow('Location', ticket.locationName || 'N/A')}
+                    ${infoRow('Reopened By', reopenedByName || 'N/A')}
+                    ${infoRow('Status', badge('OPEN', statusColors.open))}
+                </table>
+            </td></tr>
+        </table>
+
+        <p style="margin: 0; color: #64748b; font-size: 13px;">Please review and take action on this ticket.</p>
+    `);
+    return { subject, html };
+};
+
+const ticketPriorityEscalated = (data) => {
+    const { ticket, oldPriority, newPriority, escalatedByName } = data;
+    const subject = `🚨 Priority Escalated: ${ticket.title} → ${newPriority.toUpperCase()}`;
+    const html = baseLayout(subject, `
+        <div style="background: #fef2f2; border: 2px solid #fecaca; border-radius: 8px; padding: 16px; margin-bottom: 24px; text-align: center;">
+            <h2 style="margin: 0 0 4px 0; color: #dc2626; font-size: 20px;">🚨 Priority Escalated</h2>
+            <p style="margin: 0; color: #b91c1c; font-size: 14px;">A ticket's priority has been raised</p>
+        </div>
+        
+        <table width="100%" cellpadding="0" cellspacing="0" style="background: #f8fafc; border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+            <tr><td>
+                <table width="100%" cellpadding="0" cellspacing="0">
+                    ${infoRow('Title', `<strong>${ticket.title}</strong>`)}
+                    ${infoRow('Previous Priority', badge(oldPriority?.toUpperCase(), priorityColors[oldPriority] || '#6b7280'))}
+                    ${infoRow('New Priority', badge(newPriority?.toUpperCase(), priorityColors[newPriority] || '#6b7280'))}
+                    ${infoRow('Location', ticket.locationName || 'N/A')}
+                    ${infoRow('Escalated By', escalatedByName || 'N/A')}
+                </table>
+            </td></tr>
+        </table>
+
+        <p style="margin: 0; color: #dc2626; font-size: 14px; font-weight: 600;">Please address this ticket with the updated priority.</p>
+    `);
+    return { subject, html };
+};
+
+const ticketReassigned = (data) => {
+    const { ticket, assignedToName, reassignedByName, previousAssigneeName } = data;
+    const subject = `Ticket Reassigned: ${ticket.title}`;
+    const html = baseLayout(subject, `
+        <h2 style="margin: 0 0 8px 0; color: #1e293b; font-size: 20px;">🔄 Ticket Reassigned</h2>
+        <p style="margin: 0 0 24px 0; color: #64748b; font-size: 14px;">A ticket has been reassigned by <strong>${reassignedByName}</strong>.</p>
+        
+        <table width="100%" cellpadding="0" cellspacing="0" style="background: #f8fafc; border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+            <tr><td>
+                <table width="100%" cellpadding="0" cellspacing="0">
+                    ${infoRow('Title', `<strong>${ticket.title}</strong>`)}
+                    ${infoRow('Priority', badge(ticket.priority?.toUpperCase(), priorityColors[ticket.priority] || '#6b7280'))}
+                    ${infoRow('Location', ticket.locationName || 'N/A')}
+                    ${previousAssigneeName ? infoRow('Previously Assigned', previousAssigneeName) : ''}
+                    ${infoRow('Now Assigned To', `<strong>${assignedToName}</strong>`)}
+                </table>
+            </td></tr>
+        </table>
+
+        <p style="margin: 0; color: #64748b; font-size: 13px;">Please log in to CleanGuard QC to review this ticket.</p>
+    `);
+    return { subject, html };
+};
+
+const ticketVerified = (data) => {
+    const { ticket, verifiedByName } = data;
+    const subject = `✅ Ticket Verified: ${ticket.title}`;
+    const html = baseLayout(subject, `
+        <h2 style="margin: 0 0 8px 0; color: #1e293b; font-size: 20px;">✅ Ticket Verified & Closed</h2>
+        <p style="margin: 0 0 24px 0; color: #64748b; font-size: 14px;">A resolved ticket has been verified by <strong>${verifiedByName}</strong>.</p>
+        
+        <table width="100%" cellpadding="0" cellspacing="0" style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+            <tr><td>
+                <table width="100%" cellpadding="0" cellspacing="0">
+                    ${infoRow('Title', `<strong>${ticket.title}</strong>`)}
+                    ${infoRow('Status', badge('VERIFIED', '#8b5cf6'))}
+                    ${infoRow('Location', ticket.locationName || 'N/A')}
+                    ${infoRow('Verified By', verifiedByName)}
+                </table>
+            </td></tr>
+        </table>
+    `);
+    return { subject, html };
+};
+
+
 // ═══════════════════════════════════════════════════════════════════
 //  INSPECTION TEMPLATES
 // ═══════════════════════════════════════════════════════════════════
@@ -348,6 +446,51 @@ const inspectionDeficient = (data) => {
 };
 
 
+const inspectionReassigned = (data) => {
+    const { inspection, reassignedByName, previousInspectorName } = data;
+    const subject = `Inspection Reassigned: ${inspection.locationName}`;
+    const html = baseLayout(subject, `
+        <h2 style="margin: 0 0 8px 0; color: #1e293b; font-size: 20px;">🔄 Inspection Reassigned</h2>
+        <p style="margin: 0 0 24px 0; color: #64748b; font-size: 14px;">An inspection has been reassigned by <strong>${reassignedByName}</strong>.</p>
+        
+        <table width="100%" cellpadding="0" cellspacing="0" style="background: #f8fafc; border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+            <tr><td>
+                <table width="100%" cellpadding="0" cellspacing="0">
+                    ${infoRow('Location', `<strong>${inspection.locationName}</strong>`)}
+                    ${infoRow('Template', inspection.templateName || 'N/A')}
+                    ${previousInspectorName ? infoRow('Previously Assigned', previousInspectorName) : ''}
+                    ${infoRow('Status', badge('PENDING', '#f59e0b'))}
+                </table>
+            </td></tr>
+        </table>
+
+        <p style="margin: 0; color: #64748b; font-size: 13px;">Please log in to CleanGuard QC to start this inspection.</p>
+    `);
+    return { subject, html };
+};
+
+const inspectionDeleted = (data) => {
+    const { inspection, deletedByName } = data;
+    const subject = `Inspection Deleted: ${inspection.locationName}`;
+    const html = baseLayout(subject, `
+        <h2 style="margin: 0 0 8px 0; color: #1e293b; font-size: 20px;">🗑️ Inspection Deleted</h2>
+        <p style="margin: 0 0 24px 0; color: #64748b; font-size: 14px;">An inspection has been deleted by <strong>${deletedByName}</strong>.</p>
+        
+        <table width="100%" cellpadding="0" cellspacing="0" style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+            <tr><td>
+                <table width="100%" cellpadding="0" cellspacing="0">
+                    ${infoRow('Location', `<strong>${inspection.locationName}</strong>`)}
+                    ${infoRow('Template', inspection.templateName || 'N/A')}
+                    ${inspection.totalScore !== undefined ? infoRow('Score', `${inspection.totalScore}%`) : ''}
+                    ${infoRow('Deleted By', deletedByName)}
+                </table>
+            </td></tr>
+        </table>
+    `);
+    return { subject, html };
+};
+
+
 // ═══════════════════════════════════════════════════════════════════
 //  USER TEMPLATES
 // ═══════════════════════════════════════════════════════════════════
@@ -434,6 +577,141 @@ const bulkTicketsCreated = (data) => {
 
 
 // ═══════════════════════════════════════════════════════════════════
+//  REMINDER & OVERDUE TEMPLATES
+// ═══════════════════════════════════════════════════════════════════
+
+const ticketReminderTomorrow = (data) => {
+    const { ticket } = data;
+    const schedDate = new Date(ticket.scheduledDate).toLocaleDateString('en-US', {
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+    });
+    const subject = `📅 Reminder: Ticket "${ticket.title}" — Tomorrow`;
+    const html = baseLayout(subject, `
+        <h2 style="margin: 0 0 8px 0; color: #1e293b; font-size: 20px;">📅 Ticket Reminder — Tomorrow</h2>
+        <p style="margin: 0 0 24px 0; color: #64748b; font-size: 14px;">You have a ticket scheduled for <strong>tomorrow</strong>.</p>
+        
+        <table width="100%" cellpadding="0" cellspacing="0" style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+            <tr><td>
+                <table width="100%" cellpadding="0" cellspacing="0">
+                    ${infoRow('Title', `<strong>${ticket.title}</strong>`)}
+                    ${infoRow('Scheduled For', `<strong style="color: #2563eb;">${schedDate}</strong>`)}
+                    ${infoRow('Priority', badge(ticket.priority?.toUpperCase(), priorityColors[ticket.priority] || '#6b7280'))}
+                    ${infoRow('Location', ticket.locationName || 'N/A')}
+                </table>
+            </td></tr>
+        </table>
+
+        <p style="margin: 0; color: #64748b; font-size: 13px;">Please prepare for this task so you can start on time.</p>
+    `);
+    return { subject, html };
+};
+
+const ticketReminderToday = (data) => {
+    const { ticket } = data;
+    const subject = `🔔 Today: Ticket "${ticket.title}" — Work Starts Today`;
+    const html = baseLayout(subject, `
+        <div style="background: #fef3c7; border: 2px solid #f59e0b; border-radius: 8px; padding: 16px; margin-bottom: 24px; text-align: center;">
+            <h2 style="margin: 0 0 4px 0; color: #b45309; font-size: 20px;">🔔 Work Starts Today!</h2>
+            <p style="margin: 0; color: #92400e; font-size: 14px;">You have a ticket scheduled for today</p>
+        </div>
+        
+        <table width="100%" cellpadding="0" cellspacing="0" style="background: #f8fafc; border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+            <tr><td>
+                <table width="100%" cellpadding="0" cellspacing="0">
+                    ${infoRow('Title', `<strong>${ticket.title}</strong>`)}
+                    ${infoRow('Priority', badge(ticket.priority?.toUpperCase(), priorityColors[ticket.priority] || '#6b7280'))}
+                    ${infoRow('Location', ticket.locationName || 'N/A')}
+                    ${infoRow('Status', badge(ticket.status?.replace('_', ' ').toUpperCase(), statusColors[ticket.status] || '#6b7280'))}
+                </table>
+            </td></tr>
+        </table>
+
+        <p style="margin: 0; color: #b45309; font-size: 14px; font-weight: 600;">Please start working on this ticket today.</p>
+    `);
+    return { subject, html };
+};
+
+const ticketOverdue = (data) => {
+    const { ticket, daysOverdue } = data;
+    const dueDate = new Date(ticket.dueDate).toLocaleDateString('en-US', {
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+    });
+    const subject = `🚨 OVERDUE: Ticket "${ticket.title}" — ${daysOverdue} day(s) overdue`;
+    const html = baseLayout(subject, `
+        <div style="background: #fef2f2; border: 2px solid #fecaca; border-radius: 8px; padding: 16px; margin-bottom: 24px; text-align: center;">
+            <h2 style="margin: 0 0 4px 0; color: #dc2626; font-size: 20px;">🚨 TICKET OVERDUE</h2>
+            <p style="margin: 0; color: #b91c1c; font-size: 14px;">${daysOverdue} day(s) past the due date</p>
+        </div>
+        
+        <table width="100%" cellpadding="0" cellspacing="0" style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+            <tr><td>
+                <table width="100%" cellpadding="0" cellspacing="0">
+                    ${infoRow('Title', `<strong style="color: #dc2626;">${ticket.title}</strong>`)}
+                    ${infoRow('Due Date', `<strong style="color: #dc2626;">${dueDate}</strong>`)}
+                    ${infoRow('Days Overdue', `<strong style="color: #dc2626;">${daysOverdue}</strong>`)}
+                    ${infoRow('Priority', badge(ticket.priority?.toUpperCase(), priorityColors[ticket.priority] || '#6b7280'))}
+                    ${infoRow('Location', ticket.locationName || 'N/A')}
+                    ${infoRow('Status', badge(ticket.status?.replace('_', ' ').toUpperCase(), statusColors[ticket.status] || '#6b7280'))}
+                </table>
+            </td></tr>
+        </table>
+
+        <p style="margin: 0; color: #dc2626; font-size: 14px; font-weight: 600;">Please address this overdue ticket immediately.</p>
+    `);
+    return { subject, html };
+};
+
+const inspectionReminderTomorrow = (data) => {
+    const { inspection } = data;
+    const schedDate = new Date(inspection.scheduledDate).toLocaleDateString('en-US', {
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+    });
+    const subject = `📅 Reminder: Inspection at ${inspection.locationName} — Tomorrow`;
+    const html = baseLayout(subject, `
+        <h2 style="margin: 0 0 8px 0; color: #1e293b; font-size: 20px;">📅 Inspection Reminder — Tomorrow</h2>
+        <p style="margin: 0 0 24px 0; color: #64748b; font-size: 14px;">You have an inspection scheduled for <strong>tomorrow</strong>.</p>
+        
+        <table width="100%" cellpadding="0" cellspacing="0" style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+            <tr><td>
+                <table width="100%" cellpadding="0" cellspacing="0">
+                    ${infoRow('Location', `<strong>${inspection.locationName}</strong>`)}
+                    ${infoRow('Scheduled For', `<strong style="color: #2563eb;">${schedDate}</strong>`)}
+                    ${infoRow('Template', inspection.templateName || 'N/A')}
+                </table>
+            </td></tr>
+        </table>
+
+        <p style="margin: 0; color: #64748b; font-size: 13px;">Please prepare for this inspection so you can start on time.</p>
+    `);
+    return { subject, html };
+};
+
+const inspectionReminderToday = (data) => {
+    const { inspection } = data;
+    const subject = `🔔 Today: Inspection at ${inspection.locationName} — Work Starts Today`;
+    const html = baseLayout(subject, `
+        <div style="background: #fef3c7; border: 2px solid #f59e0b; border-radius: 8px; padding: 16px; margin-bottom: 24px; text-align: center;">
+            <h2 style="margin: 0 0 4px 0; color: #b45309; font-size: 20px;">🔔 Inspection Today!</h2>
+            <p style="margin: 0; color: #92400e; font-size: 14px;">You have an inspection scheduled for today</p>
+        </div>
+        
+        <table width="100%" cellpadding="0" cellspacing="0" style="background: #f8fafc; border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+            <tr><td>
+                <table width="100%" cellpadding="0" cellspacing="0">
+                    ${infoRow('Location', `<strong>${inspection.locationName}</strong>`)}
+                    ${infoRow('Template', inspection.templateName || 'N/A')}
+                    ${infoRow('Status', badge(inspection.status?.toUpperCase(), statusColors[inspection.status] || '#6b7280'))}
+                </table>
+            </td></tr>
+        </table>
+
+        <p style="margin: 0; color: #b45309; font-size: 14px; font-weight: 600;">Please complete this inspection today.</p>
+    `);
+    return { subject, html };
+};
+
+
+// ═══════════════════════════════════════════════════════════════════
 //  TEMPLATE MAP — Maps event keys to template functions
 // ═══════════════════════════════════════════════════════════════════
 
@@ -444,13 +722,24 @@ const TEMPLATES = {
     TICKET_STATUS_CHANGED: ticketStatusChanged,
     TICKET_RESOLVED: ticketResolved,
     TICKET_URGENT: ticketUrgent,
+    TICKET_REOPENED: ticketReopened,
+    TICKET_PRIORITY_ESCALATED: ticketPriorityEscalated,
+    TICKET_REASSIGNED: ticketReassigned,
+    TICKET_VERIFIED: ticketVerified,
     INSPECTION_ASSIGNED: inspectionAssigned,
     INSPECTION_SCHEDULED: inspectionScheduled,
     INSPECTION_COMPLETED: inspectionCompleted,
     INSPECTION_DEFICIENT: inspectionDeficient,
+    INSPECTION_REASSIGNED: inspectionReassigned,
+    INSPECTION_DELETED: inspectionDeleted,
     USER_WELCOME: userWelcome,
     USER_UPDATED: userUpdated,
     BULK_TICKETS_CREATED: bulkTicketsCreated,
+    TICKET_REMINDER_TOMORROW: ticketReminderTomorrow,
+    TICKET_REMINDER_TODAY: ticketReminderToday,
+    TICKET_OVERDUE: ticketOverdue,
+    INSPECTION_REMINDER_TOMORROW: inspectionReminderTomorrow,
+    INSPECTION_REMINDER_TODAY: inspectionReminderToday,
 };
 
 module.exports = TEMPLATES;

@@ -384,11 +384,204 @@ const getDashboardSummary = async (req, res) => {
     }
 };
 
+// @desc    Get work stats (per-user activity: tickets worked, inspections done, time taken)
+// @route   GET /api/dashboard/work-stats
+// @access  Private (admin/sub_admin see all, supervisor sees own, client blocked)
+const getWorkStats = async (req, res) => {
+    try {
+        const { start_date, end_date, user_id } = req.query;
+
+        if (req.user.role === 'client') {
+            return res.status(403).json({ message: 'Access denied' });
+        }
+
+        const start = start_date ? new Date(start_date) : new Date(new Date().setDate(new Date().getDate() - 30));
+        const end = end_date ? new Date(end_date) : new Date();
+        end.setHours(23, 59, 59, 999);
+
+        // --- Build queries ---
+        let ticketQuery = { createdAt: { $gte: start, $lte: end } };
+        let inspectionQuery = { createdAt: { $gte: start, $lte: end } };
+
+        if (req.user.role === 'supervisor') {
+            ticketQuery.assignedTo = req.user._id;
+            inspectionQuery.inspector = req.user._id;
+        } else if (user_id && user_id !== 'all') {
+            ticketQuery.assignedTo = user_id;
+            inspectionQuery.inspector = user_id;
+        }
+
+        // --- Fetch data ---
+        const tickets = await Ticket.find(ticketQuery)
+            .populate('assignedTo', 'name email role')
+            .populate('location', 'name')
+            .sort({ createdAt: -1 });
+
+        const inspections = await Inspection.find(inspectionQuery)
+            .populate('inspector', 'name email role')
+            .populate('location', 'name')
+            .populate('template', 'name')
+            .sort({ createdAt: -1 });
+
+        // --- Per-user aggregation ---
+        const userMap = {};
+
+        const ensureUser = (id, name, role) => {
+            const key = id?.toString();
+            if (!key) return null;
+            if (!userMap[key]) {
+                userMap[key] = {
+                    userId: key,
+                    name: name || 'Unknown',
+                    role: role || 'supervisor',
+                    tickets: { assigned: 0, started: 0, resolved: 0, totalResolutionHours: 0 },
+                    inspections: { assigned: 0, completed: 0, totalScore: 0, totalCompletionHours: 0 },
+                };
+            }
+            return userMap[key];
+        };
+
+        tickets.forEach(t => {
+            const u = ensureUser(t.assignedTo?._id, t.assignedTo?.name, t.assignedTo?.role);
+            if (!u) return;
+            u.tickets.assigned++;
+            if (t.firstResponseAt) u.tickets.started++;
+            if (t.resolvedAt) {
+                u.tickets.resolved++;
+                const hours = (new Date(t.resolvedAt) - new Date(t.createdAt)) / (1000 * 60 * 60);
+                u.tickets.totalResolutionHours += hours;
+            }
+        });
+
+        inspections.forEach(i => {
+            const u = ensureUser(i.inspector?._id, i.inspector?.name, i.inspector?.role);
+            if (!u) return;
+            u.inspections.assigned++;
+            if (i.status === 'completed' || i.status === 'submitted') {
+                u.inspections.completed++;
+                u.inspections.totalScore += i.totalScore || 0;
+                const hours = (new Date(i.updatedAt) - new Date(i.createdAt)) / (1000 * 60 * 60);
+                u.inspections.totalCompletionHours += hours;
+            }
+        });
+
+        const userStats = Object.values(userMap).map(u => ({
+            userId: u.userId,
+            name: u.name,
+            role: u.role,
+            tickets: {
+                assigned: u.tickets.assigned,
+                started: u.tickets.started,
+                resolved: u.tickets.resolved,
+                avgResolutionHours: u.tickets.resolved > 0
+                    ? parseFloat((u.tickets.totalResolutionHours / u.tickets.resolved).toFixed(1))
+                    : 0,
+            },
+            inspections: {
+                assigned: u.inspections.assigned,
+                completed: u.inspections.completed,
+                avgScore: u.inspections.completed > 0
+                    ? Math.round(u.inspections.totalScore / u.inspections.completed)
+                    : 0,
+                avgCompletionHours: u.inspections.completed > 0
+                    ? parseFloat((u.inspections.totalCompletionHours / u.inspections.completed).toFixed(1))
+                    : 0,
+            },
+        }));
+
+        // --- Activity log (combined recent items) ---
+        const activity = [];
+
+        tickets.forEach(t => {
+            activity.push({
+                type: 'ticket',
+                id: t._id,
+                title: t.title,
+                locationName: t.location?.name || 'N/A',
+                person: t.assignedTo?.name || 'Unassigned',
+                personId: t.assignedTo?._id?.toString() || null,
+                status: t.status,
+                priority: t.priority,
+                startedAt: t.firstResponseAt || null,
+                completedAt: t.resolvedAt || null,
+                scheduledDate: t.scheduledDate || null,
+                createdAt: t.createdAt,
+                timeTakenHours: t.resolvedAt
+                    ? parseFloat(((new Date(t.resolvedAt) - new Date(t.firstResponseAt || t.createdAt)) / (1000 * 60 * 60)).toFixed(1))
+                    : null,
+            });
+        });
+
+        inspections.forEach(i => {
+            const isCompleted = i.status === 'completed' || i.status === 'submitted';
+            activity.push({
+                type: 'inspection',
+                id: i._id,
+                title: i.template?.name || 'Inspection',
+                locationName: i.location?.name || 'N/A',
+                person: i.inspector?.name || 'Unknown',
+                personId: i.inspector?._id?.toString() || null,
+                status: i.status,
+                score: i.totalScore,
+                startedAt: i.createdAt,
+                completedAt: isCompleted ? i.updatedAt : null,
+                scheduledDate: i.scheduledDate || null,
+                createdAt: i.createdAt,
+                timeTakenHours: isCompleted
+                    ? parseFloat(((new Date(i.updatedAt) - new Date(i.createdAt)) / (1000 * 60 * 60)).toFixed(1))
+                    : null,
+            });
+        });
+
+        activity.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+        // --- Summary totals ---
+        const totalTicketsResolved = tickets.filter(t => t.resolvedAt).length;
+        const totalInspectionsCompleted = inspections.filter(i => i.status === 'completed' || i.status === 'submitted').length;
+
+        const avgTicketResolutionHours = totalTicketsResolved > 0
+            ? parseFloat((tickets.filter(t => t.resolvedAt).reduce((sum, t) => sum + (new Date(t.resolvedAt) - new Date(t.createdAt)) / (1000 * 60 * 60), 0) / totalTicketsResolved).toFixed(1))
+            : 0;
+
+        const avgInspectionScore = totalInspectionsCompleted > 0
+            ? Math.round(inspections.filter(i => i.status === 'completed' || i.status === 'submitted').reduce((sum, i) => sum + (i.totalScore || 0), 0) / totalInspectionsCompleted)
+            : 0;
+
+        // --- Get supervisors list for filter dropdown (admin only) ---
+        let supervisors = [];
+        if (req.user.role === 'admin' || req.user.role === 'sub_admin') {
+            const User = require('../models/userModel');
+            supervisors = await User.find({ role: { $in: ['supervisor', 'admin', 'sub_admin'] } })
+                .select('name email role')
+                .sort({ name: 1 });
+        }
+
+        res.json({
+            period: { start, end },
+            summary: {
+                totalTickets: tickets.length,
+                totalTicketsResolved,
+                avgTicketResolutionHours,
+                totalInspections: inspections.length,
+                totalInspectionsCompleted,
+                avgInspectionScore,
+            },
+            userStats,
+            activity,
+            supervisors: supervisors.map(s => ({ _id: s._id, name: s.name, role: s.role })),
+        });
+    } catch (error) {
+        console.error('Work stats error:', error);
+        res.status(500).json({ message: 'Failed to get work stats' });
+    }
+};
+
 module.exports = {
     getInspectionCount,
     getInspectionScoreAverage,
     getTicketCount,
     getInspectionsOverTime,
     getTicketsOverTime,
-    getDashboardSummary
+    getDashboardSummary,
+    getWorkStats
 };

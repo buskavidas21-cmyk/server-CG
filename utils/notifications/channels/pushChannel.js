@@ -68,6 +68,61 @@ const PUSH_MESSAGES = {
         body: `${data.count} tickets created from inspection at ${data.locationName}`,
         data: { type: 'BULK_TICKETS_CREATED' },
     }),
+    TICKET_REOPENED: (data) => ({
+        title: 'Ticket Reopened',
+        body: `Ticket "${data.ticket?.title}" has been reopened by ${data.reopenedByName || 'someone'}`,
+        data: { type: 'TICKET_REOPENED', ticketId: data.ticket?._id?.toString() || '' },
+    }),
+    TICKET_PRIORITY_ESCALATED: (data) => ({
+        title: 'Priority Escalated!',
+        body: `Ticket "${data.ticket?.title}" escalated to ${data.newPriority?.toUpperCase()}`,
+        data: { type: 'TICKET_PRIORITY_ESCALATED', ticketId: data.ticket?._id?.toString() || '' },
+    }),
+    TICKET_REASSIGNED: (data) => ({
+        title: 'Ticket Reassigned',
+        body: `Ticket "${data.ticket?.title}" has been reassigned to you`,
+        data: { type: 'TICKET_REASSIGNED', ticketId: data.ticket?._id?.toString() || '' },
+    }),
+    TICKET_VERIFIED: (data) => ({
+        title: 'Ticket Verified',
+        body: `Ticket "${data.ticket?.title}" has been verified and closed`,
+        data: { type: 'TICKET_VERIFIED', ticketId: data.ticket?._id?.toString() || '' },
+    }),
+    INSPECTION_REASSIGNED: (data) => ({
+        title: 'Inspection Reassigned',
+        body: `Inspection at ${data.inspection?.locationName || 'a location'} has been reassigned to you`,
+        data: { type: 'INSPECTION_REASSIGNED', inspectionId: data.inspection?._id?.toString() || '' },
+    }),
+    INSPECTION_DELETED: (data) => ({
+        title: 'Inspection Deleted',
+        body: `Inspection at ${data.inspection?.locationName || 'a location'} has been deleted`,
+        data: { type: 'INSPECTION_DELETED' },
+    }),
+    TICKET_REMINDER_TOMORROW: (data) => ({
+        title: 'Ticket Tomorrow',
+        body: `Reminder: "${data.ticket?.title}" is scheduled for tomorrow`,
+        data: { type: 'TICKET_REMINDER_TOMORROW', ticketId: data.ticket?._id?.toString() || '' },
+    }),
+    TICKET_REMINDER_TODAY: (data) => ({
+        title: 'Ticket Today!',
+        body: `Today: "${data.ticket?.title}" is scheduled for today`,
+        data: { type: 'TICKET_REMINDER_TODAY', ticketId: data.ticket?._id?.toString() || '' },
+    }),
+    TICKET_OVERDUE: (data) => ({
+        title: 'Ticket Overdue!',
+        body: `Overdue: "${data.ticket?.title}" was due ${data.daysOverdue || ''} day(s) ago`,
+        data: { type: 'TICKET_OVERDUE', ticketId: data.ticket?._id?.toString() || '' },
+    }),
+    INSPECTION_REMINDER_TOMORROW: (data) => ({
+        title: 'Inspection Tomorrow',
+        body: `Reminder: Inspection at ${data.inspection?.locationName} is scheduled for tomorrow`,
+        data: { type: 'INSPECTION_REMINDER_TOMORROW', inspectionId: data.inspection?._id?.toString() || '' },
+    }),
+    INSPECTION_REMINDER_TODAY: (data) => ({
+        title: 'Inspection Today!',
+        body: `Today: Inspection at ${data.inspection?.locationName} is scheduled for today`,
+        data: { type: 'INSPECTION_REMINDER_TODAY', inspectionId: data.inspection?._id?.toString() || '' },
+    }),
 };
 
 class PushChannel {

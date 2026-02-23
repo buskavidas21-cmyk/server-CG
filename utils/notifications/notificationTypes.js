@@ -45,6 +45,31 @@ const NOTIFICATION_EVENTS = {
         priority: 'high',
     },
 
+    TICKET_REOPENED: {
+        key: 'TICKET_REOPENED',
+        title: 'Ticket Reopened',
+        channels: ['email', 'push'],
+        priority: 'normal',
+    },
+    TICKET_PRIORITY_ESCALATED: {
+        key: 'TICKET_PRIORITY_ESCALATED',
+        title: 'Ticket Priority Escalated',
+        channels: ['email', 'push'],
+        priority: 'high',
+    },
+    TICKET_REASSIGNED: {
+        key: 'TICKET_REASSIGNED',
+        title: 'Ticket Reassigned',
+        channels: ['email', 'push'],
+        priority: 'normal',
+    },
+    TICKET_VERIFIED: {
+        key: 'TICKET_VERIFIED',
+        title: 'Ticket Verified',
+        channels: ['email', 'push'],
+        priority: 'normal',
+    },
+
     // ─── Inspection Events ───────────────────────────────────────
     INSPECTION_ASSIGNED: {
         key: 'INSPECTION_ASSIGNED',
@@ -71,6 +96,19 @@ const NOTIFICATION_EVENTS = {
         priority: 'high',
     },
 
+    INSPECTION_REASSIGNED: {
+        key: 'INSPECTION_REASSIGNED',
+        title: 'Inspection Reassigned',
+        channels: ['email', 'push'],
+        priority: 'normal',
+    },
+    INSPECTION_DELETED: {
+        key: 'INSPECTION_DELETED',
+        title: 'Inspection Deleted',
+        channels: ['email', 'push'],
+        priority: 'normal',
+    },
+
     // ─── User Events ────────────────────────────────────────────
     USER_WELCOME: {
         key: 'USER_WELCOME',
@@ -83,6 +121,38 @@ const NOTIFICATION_EVENTS = {
         title: 'Account Updated',
         channels: ['email'],  // Email only for account updates
         priority: 'normal',
+    },
+
+    // ─── Reminder & Overdue Events ─────────────────────────────
+    TICKET_REMINDER_TOMORROW: {
+        key: 'TICKET_REMINDER_TOMORROW',
+        title: 'Ticket Reminder — Tomorrow',
+        channels: ['email', 'push'],
+        priority: 'normal',
+    },
+    TICKET_REMINDER_TODAY: {
+        key: 'TICKET_REMINDER_TODAY',
+        title: 'Ticket Reminder — Today',
+        channels: ['email', 'push'],
+        priority: 'high',
+    },
+    TICKET_OVERDUE: {
+        key: 'TICKET_OVERDUE',
+        title: 'Ticket Overdue',
+        channels: ['email', 'push'],
+        priority: 'high',
+    },
+    INSPECTION_REMINDER_TOMORROW: {
+        key: 'INSPECTION_REMINDER_TOMORROW',
+        title: 'Inspection Reminder — Tomorrow',
+        channels: ['email', 'push'],
+        priority: 'normal',
+    },
+    INSPECTION_REMINDER_TODAY: {
+        key: 'INSPECTION_REMINDER_TODAY',
+        title: 'Inspection Reminder — Today',
+        channels: ['email', 'push'],
+        priority: 'high',
     },
 
     // ─── Bulk Events ────────────────────────────────────────────

@@ -24,6 +24,10 @@ connectDB();
 const initializeNotifications = require('./utils/notifications/notificationInit');
 initializeNotifications();
 
+// Initialize Reminder Scheduler (daily cron at 8 AM Pacific)
+const { initializeScheduler } = require('./utils/notifications/scheduler');
+initializeScheduler();
+
 const app = express();
 
 app.set('trust proxy', 1);

@@ -156,24 +156,28 @@ const updateInspection = async (req, res) => {
 
     if (inspection) {
         const oldStatus = inspection.status;
+        const oldInspectorId = inspection.inspector?._id?.toString();
+        const previousInspectorName = inspection.inspector?.name;
+
         Object.assign(inspection, req.body);
         const updatedInspection = await inspection.save();
 
-        // ─── Send Notifications on status change ────────────────
-        const newStatus = req.body.status;
-        if (newStatus && newStatus !== oldStatus) {
-            (async () => {
-                try {
-                    const inspectionData = {
-                        _id: inspection._id,
-                        locationName: inspection.location?.name || 'N/A',
-                        templateName: inspection.template?.name || 'N/A',
-                        totalScore: updatedInspection.totalScore,
-                        appaScore: updatedInspection.appaScore,
-                        summaryComment: updatedInspection.summaryComment,
-                    };
-                    const inspectorName = inspection.inspector?.name || 'Unknown';
+        const inspectionData = {
+            _id: inspection._id,
+            locationName: inspection.location?.name || 'N/A',
+            templateName: inspection.template?.name || 'N/A',
+            totalScore: updatedInspection.totalScore,
+            appaScore: updatedInspection.appaScore,
+            summaryComment: updatedInspection.summaryComment,
+        };
+        const inspectorName = inspection.inspector?.name || 'Unknown';
 
+        // ─── Send Notifications (non-blocking) ────────────────
+        (async () => {
+            try {
+                // --- Status change notifications ---
+                const newStatus = req.body.status;
+                if (newStatus && newStatus !== oldStatus) {
                     if (newStatus === 'completed' || newStatus === 'submitted') {
                         const adminRecipients = await getAdminRecipients();
                         const clientRecipients = await getClientRecipientsForLocation(inspection.location?._id);
@@ -185,7 +189,6 @@ const updateInspection = async (req, res) => {
                             meta: { triggeredBy: req.user._id },
                         });
 
-                        // If deficient
                         if (updatedInspection.totalScore < 75) {
                             await notificationService.notify('INSPECTION_DEFICIENT', {
                                 recipients: allRecipients,
@@ -194,11 +197,28 @@ const updateInspection = async (req, res) => {
                             });
                         }
                     }
-                } catch (err) {
-                    console.error('Notification error (inspection update):', err.message);
                 }
-            })();
-        }
+
+                // --- Reassignment via PUT notification ---
+                const newInspectorId = req.body.inspector?.toString();
+                if (newInspectorId && newInspectorId !== oldInspectorId) {
+                    const newInspectorRecipient = await getUserRecipient(newInspectorId);
+                    if (newInspectorRecipient) {
+                        await notificationService.notify('INSPECTION_REASSIGNED', {
+                            recipients: [newInspectorRecipient],
+                            data: {
+                                inspection: inspectionData,
+                                reassignedByName: req.user.name,
+                                previousInspectorName: previousInspectorName || 'Unassigned',
+                            },
+                            meta: { triggeredBy: req.user._id },
+                        });
+                    }
+                }
+            } catch (err) {
+                console.error('Notification error (inspection update):', err.message);
+            }
+        })();
 
         res.json(updatedInspection);
     } else {
@@ -211,9 +231,47 @@ const updateInspection = async (req, res) => {
 // @route   DELETE /api/inspections/:id
 // @access  Private
 const deleteInspection = async (req, res) => {
-    const inspection = await Inspection.findById(req.params.id);
+    const inspection = await Inspection.findById(req.params.id)
+        .populate('location', 'name')
+        .populate('template', 'name')
+        .populate('inspector', 'name email');
+
     if (inspection) {
+        const inspectionData = {
+            _id: inspection._id,
+            locationName: inspection.location?.name || 'N/A',
+            templateName: inspection.template?.name || 'N/A',
+            totalScore: inspection.totalScore,
+        };
+        const inspectorId = inspection.inspector?._id;
+
         await inspection.deleteOne();
+
+        // ─── Send Notification (non-blocking) ────────────────
+        (async () => {
+            try {
+                const adminRecipients = await getAdminRecipients();
+                const inspectorRecipient = inspectorId
+                    ? await getUserRecipient(inspectorId)
+                    : null;
+                const allRecipients = mergeRecipients(
+                    adminRecipients,
+                    inspectorRecipient ? [inspectorRecipient] : []
+                );
+
+                await notificationService.notify('INSPECTION_DELETED', {
+                    recipients: allRecipients,
+                    data: {
+                        inspection: inspectionData,
+                        deletedByName: req.user.name,
+                    },
+                    meta: { triggeredBy: req.user._id },
+                });
+            } catch (err) {
+                console.error('Notification error (inspection deleted):', err.message);
+            }
+        })();
+
         res.json({ message: 'Inspection removed' });
     } else {
         res.status(404);

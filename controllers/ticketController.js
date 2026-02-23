@@ -130,6 +130,8 @@ const updateTicket = async (req, res) => {
 
     if (ticket) {
         const oldStatus = ticket.status;
+        const oldPriority = ticket.priority;
+        const oldAssignedTo = ticket.assignedTo?._id?.toString();
 
         // Track first response time
         if (req.body.status === 'in_progress' && ticket.status === 'open' && !ticket.firstResponseAt) {
@@ -142,25 +144,27 @@ const updateTicket = async (req, res) => {
             req.body.resolvedBy = req.user._id;
         }
 
+        const previousAssigneeName = ticket.assignedTo?.name;
         Object.assign(ticket, req.body);
         const updatedTicket = await ticket.save();
 
-        // ─── Send Notifications (non-blocking) ─────────────────
-        const newStatus = req.body.status;
-        if (newStatus && newStatus !== oldStatus) {
-            const ticketData = {
-                _id: ticket._id,
-                title: ticket.title,
-                description: ticket.description,
-                priority: ticket.priority,
-                category: ticket.category,
-                locationName: ticket.location?.name || 'N/A',
-            };
+        const ticketData = {
+            _id: ticket._id,
+            title: ticket.title,
+            description: ticket.description,
+            priority: ticket.priority,
+            category: ticket.category,
+            locationName: ticket.location?.name || 'N/A',
+        };
 
-            (async () => {
-                try {
+        // ─── Send Notifications (non-blocking) ─────────────────
+        (async () => {
+            try {
+                const newStatus = req.body.status;
+
+                // --- Status change notifications ---
+                if (newStatus && newStatus !== oldStatus) {
                     if (newStatus === 'resolved') {
-                        // Notify: Admins + Creator + Client (location-based)
                         const adminRecipients = await getAdminRecipients();
                         const creatorRecipient = ticket.createdBy?._id
                             ? await getUserRecipient(ticket.createdBy._id)
@@ -182,7 +186,6 @@ const updateTicket = async (req, res) => {
                             meta: { triggeredBy: req.user._id },
                         });
                     } else if (newStatus === 'in_progress' && oldStatus === 'open') {
-                        // Notify: Creator/Admin that ticket was picked up
                         const adminRecipients = await getAdminRecipients();
                         const creatorRecipient = ticket.createdBy?._id
                             ? await getUserRecipient(ticket.createdBy._id)
@@ -202,12 +205,96 @@ const updateTicket = async (req, res) => {
                             },
                             meta: { triggeredBy: req.user._id },
                         });
+                    } else if (newStatus === 'open' && (oldStatus === 'resolved' || oldStatus === 'in_progress')) {
+                        // Ticket reopened
+                        const adminRecipients = await getAdminRecipients();
+                        const assigneeRecipient = ticket.assignedTo?._id
+                            ? await getUserRecipient(ticket.assignedTo._id)
+                            : null;
+                        const allRecipients = mergeRecipients(
+                            adminRecipients,
+                            assigneeRecipient ? [assigneeRecipient] : []
+                        );
+
+                        await notificationService.notify('TICKET_REOPENED', {
+                            recipients: allRecipients,
+                            data: {
+                                ticket: ticketData,
+                                reopenedByName: req.user.name,
+                                oldStatus,
+                            },
+                            meta: { triggeredBy: req.user._id },
+                        });
+                    } else if (newStatus === 'verified') {
+                        // Ticket verified
+                        const adminRecipients = await getAdminRecipients();
+                        const creatorRecipient = ticket.createdBy?._id
+                            ? await getUserRecipient(ticket.createdBy._id)
+                            : null;
+                        const clientRecipients = await getClientRecipientsForLocation(ticket.location?._id);
+                        const allRecipients = mergeRecipients(
+                            adminRecipients,
+                            creatorRecipient ? [creatorRecipient] : [],
+                            clientRecipients
+                        );
+
+                        await notificationService.notify('TICKET_VERIFIED', {
+                            recipients: allRecipients,
+                            data: {
+                                ticket: ticketData,
+                                verifiedByName: req.user.name,
+                            },
+                            meta: { triggeredBy: req.user._id },
+                        });
                     }
-                } catch (err) {
-                    console.error('Notification error (ticket update):', err.message);
                 }
-            })();
-        }
+
+                // --- Priority escalation notification ---
+                const newPriority = req.body.priority;
+                const priorityOrder = { low: 0, medium: 1, high: 2, urgent: 3 };
+                if (newPriority && newPriority !== oldPriority && (priorityOrder[newPriority] || 0) > (priorityOrder[oldPriority] || 0)) {
+                    const adminRecipients = await getAdminRecipients();
+                    const assigneeRecipient = ticket.assignedTo?._id
+                        ? await getUserRecipient(ticket.assignedTo._id)
+                        : null;
+                    const allRecipients = mergeRecipients(
+                        adminRecipients,
+                        assigneeRecipient ? [assigneeRecipient] : []
+                    );
+
+                    await notificationService.notify('TICKET_PRIORITY_ESCALATED', {
+                        recipients: allRecipients,
+                        data: {
+                            ticket: ticketData,
+                            oldPriority,
+                            newPriority,
+                            escalatedByName: req.user.name,
+                        },
+                        meta: { triggeredBy: req.user._id },
+                    });
+                }
+
+                // --- Reassignment via PUT notification ---
+                const newAssignedTo = req.body.assignedTo?.toString();
+                if (newAssignedTo && newAssignedTo !== oldAssignedTo) {
+                    const newAssigneeRecipient = await getUserRecipient(newAssignedTo);
+                    if (newAssigneeRecipient) {
+                        await notificationService.notify('TICKET_REASSIGNED', {
+                            recipients: [newAssigneeRecipient],
+                            data: {
+                                ticket: ticketData,
+                                assignedToName: newAssigneeRecipient.name,
+                                reassignedByName: req.user.name,
+                                previousAssigneeName: previousAssigneeName || 'Unassigned',
+                            },
+                            meta: { triggeredBy: req.user._id },
+                        });
+                    }
+                }
+            } catch (err) {
+                console.error('Notification error (ticket update):', err.message);
+            }
+        })();
 
         res.json(updatedTicket);
     } else {

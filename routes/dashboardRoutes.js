@@ -6,7 +6,8 @@ const {
     getTicketCount,
     getInspectionsOverTime,
     getTicketsOverTime,
-    getDashboardSummary
+    getDashboardSummary,
+    getWorkStats
 } = require('../controllers/dashboardController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -17,5 +18,6 @@ router.get('/ticket_count', protect, getTicketCount);
 router.get('/inspections_over_time', protect, getInspectionsOverTime);
 router.get('/tickets_over_time', protect, getTicketsOverTime);
 router.get('/summary', protect, getDashboardSummary);
+router.get('/work-stats', protect, getWorkStats);
 
 module.exports = router;
