@@ -9,10 +9,26 @@ const inspectionItemSchema = mongoose.Schema({
     status: { type: String, enum: ['pass', 'fail'], default: 'pass' },
 });
 
+const inspectionSubsectionSchema = mongoose.Schema({
+    subsectionId: { type: mongoose.Schema.Types.ObjectId, required: true },
+    name: { type: String, required: true },
+    parentItemId: { type: mongoose.Schema.Types.ObjectId, default: null },
+    parentItemIndex: { type: Number, default: null },
+    items: [inspectionItemSchema],
+});
+
+const inspectionSectionPromptSchema = mongoose.Schema({
+    label: { type: String, default: '' },
+    placeholder: { type: String, default: 'Add comment...' },
+    value: { type: String, default: '' },
+});
+
 const inspectionSectionSchema = mongoose.Schema({
     sectionId: { type: mongoose.Schema.Types.ObjectId, required: true },
     name: { type: String, required: true },
     items: [inspectionItemSchema],
+    subsections: [inspectionSubsectionSchema],
+    sectionPrompt: { type: inspectionSectionPromptSchema, default: undefined },
     sectionScore: { type: Number },
 });
 

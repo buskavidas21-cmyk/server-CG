@@ -10,9 +10,23 @@ const itemSchema = mongoose.Schema({
     weight: { type: Number, default: 1 },
 });
 
+const subsectionSchema = mongoose.Schema({
+    name: { type: String, required: true },
+    parentItemIndex: { type: Number, default: null },
+    items: [itemSchema],
+});
+
+const sectionPromptSchema = mongoose.Schema({
+    label: { type: String, default: '' },
+    placeholder: { type: String, default: 'Add comment...' },
+    required: { type: Boolean, default: false },
+});
+
 const sectionSchema = mongoose.Schema({
     name: { type: String, required: true },
     items: [itemSchema],
+    subsections: [subsectionSchema],
+    sectionPrompt: { type: sectionPromptSchema, default: undefined },
 });
 
 const templateSchema = mongoose.Schema(

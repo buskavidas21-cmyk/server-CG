@@ -166,6 +166,17 @@ const generateInspectionPDF = (inspection, outputPath) => {
                 doc.fillColor(COLORS.text).fontSize(12).font('Helvetica-Bold').text(section.name, 60, doc.y + 8, { lineBreak: false });
                 syncY(doc, doc.y + 40);
 
+                if (section.sectionPrompt?.label) {
+                    ensureSpace(doc, 30);
+                    const promptValue = section.sectionPrompt.value || '-';
+                    doc.fillColor(COLORS.secondary).fontSize(10).font('Helvetica-Bold')
+                        .text(section.sectionPrompt.label, 60, doc.y, { lineBreak: false });
+                    syncY(doc, doc.y + 14);
+                    doc.fillColor(COLORS.text).fontSize(10).font('Helvetica')
+                        .text(promptValue, 60, doc.y, { width: 440 });
+                    syncY(doc, doc.y + 14);
+                }
+
                 section.items?.forEach((item) => {
                     ensureSpace(doc, 40);
 
@@ -190,6 +201,39 @@ const generateInspectionPDF = (inspection, outputPath) => {
 
                     doc.moveTo(85, nextY).lineTo(550, nextY).strokeColor(COLORS.border).lineWidth(0.5).stroke();
                     syncY(doc, nextY + 8);
+                });
+
+                (section.subsections || []).forEach((subsection) => {
+                    ensureSpace(doc, 40);
+                    doc.fillColor(COLORS.secondary).fontSize(10).font('Helvetica-Bold')
+                        .text(`Sub-area: ${subsection.name}`, 60, doc.y);
+                    syncY(doc, doc.y + 16);
+
+                    (subsection.items || []).forEach((item) => {
+                        ensureSpace(doc, 40);
+
+                        const statusColor = item.status === 'pass' ? COLORS.success : COLORS.danger;
+                        const statusIcon = item.status === 'pass' ? 'P' : 'F';
+                        const itemY = doc.y;
+
+                        doc.circle(60, itemY + 6, 10).fill(statusColor);
+                        doc.fillColor(COLORS.white).fontSize(8).font('Helvetica-Bold').text(statusIcon, 56, itemY + 3, { lineBreak: false });
+                        doc.fillColor(COLORS.text).fontSize(11).font('Helvetica').text(item.name, 85, itemY, { width: 350, lineBreak: false });
+
+                        if (item.score !== null && item.score !== undefined) {
+                            doc.fillColor(COLORS.secondary).fontSize(10).text(`${item.score}/5`, 450, itemY, { align: 'right', lineBreak: false });
+                        }
+
+                        let nextY = itemY + 18;
+
+                        if (item.comment) {
+                            doc.fillColor(COLORS.secondary).fontSize(9).font('Helvetica-Oblique').text(`Note: ${item.comment}`, 85, nextY, { width: 400 });
+                            nextY += 14;
+                        }
+
+                        doc.moveTo(85, nextY).lineTo(550, nextY).strokeColor(COLORS.border).lineWidth(0.5).stroke();
+                        syncY(doc, nextY + 8);
+                    });
                 });
 
                 doc.y += 10;

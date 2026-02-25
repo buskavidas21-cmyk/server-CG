@@ -477,6 +477,29 @@ const getInspectionFormsReport = async (req, res) => {
                     }
                     areaTypePerformance[areaType].itemPerformance[itemKey].count += 1;
                 });
+                (section.subsections || []).forEach(subsection => {
+                    (subsection.items || []).forEach(item => {
+                        const itemKey = `${section.name} > ${subsection.name} - ${item.name}`;
+                        if (!areaTypePerformance[areaType].itemPerformance[itemKey]) {
+                            areaTypePerformance[areaType].itemPerformance[itemKey] = {
+                                itemName: itemKey,
+                                passCount: 0,
+                                failCount: 0,
+                                totalScore: 0,
+                                count: 0
+                            };
+                        }
+                        if (item.status === 'pass' || (typeof item.score === 'number' && item.score >= 3)) {
+                            areaTypePerformance[areaType].itemPerformance[itemKey].passCount += 1;
+                        } else {
+                            areaTypePerformance[areaType].itemPerformance[itemKey].failCount += 1;
+                        }
+                        if (typeof item.score === 'number') {
+                            areaTypePerformance[areaType].itemPerformance[itemKey].totalScore += item.score;
+                        }
+                        areaTypePerformance[areaType].itemPerformance[itemKey].count += 1;
+                    });
+                });
             });
         });
 
@@ -1102,6 +1125,29 @@ const exportInspectionFormsReport = async (req, res) => {
                         areaTypePerformance[areaType].itemPerformance[itemKey].totalScore += item.score;
                     }
                     areaTypePerformance[areaType].itemPerformance[itemKey].count += 1;
+                });
+                (section.subsections || []).forEach(subsection => {
+                    (subsection.items || []).forEach(item => {
+                        const itemKey = `${section.name} > ${subsection.name} - ${item.name}`;
+                        if (!areaTypePerformance[areaType].itemPerformance[itemKey]) {
+                            areaTypePerformance[areaType].itemPerformance[itemKey] = {
+                                itemName: itemKey,
+                                passCount: 0,
+                                failCount: 0,
+                                totalScore: 0,
+                                count: 0
+                            };
+                        }
+                        if (item.status === 'pass' || (typeof item.score === 'number' && item.score >= 3)) {
+                            areaTypePerformance[areaType].itemPerformance[itemKey].passCount += 1;
+                        } else {
+                            areaTypePerformance[areaType].itemPerformance[itemKey].failCount += 1;
+                        }
+                        if (typeof item.score === 'number') {
+                            areaTypePerformance[areaType].itemPerformance[itemKey].totalScore += item.score;
+                        }
+                        areaTypePerformance[areaType].itemPerformance[itemKey].count += 1;
+                    });
                 });
             });
         });
