@@ -3,6 +3,11 @@ const mongoose = require('mongoose');
 const inspectionItemSchema = mongoose.Schema({
     itemId: { type: mongoose.Schema.Types.ObjectId, required: true },
     name: { type: String, required: true },
+    type: {
+        type: String,
+        enum: ['pass_fail', 'rating_1_5', 'yes_no'],
+        default: 'pass_fail',
+    },
     score: { type: mongoose.Schema.Types.Mixed }, // boolean or number
     comment: { type: String },
     photos: [{ type: String }], // URLs
